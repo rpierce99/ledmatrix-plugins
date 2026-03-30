@@ -970,6 +970,85 @@ class FlightTrackerPlugin(BasePlugin):
             return (255, 150, 0)   # Orange
         return (255, 50, 50)       # Red
 
+    def _enrich_from_offline_db(self) -> None:
+        """Fill in aircraft_type from SkyAware's db endpoint or offline FAA DB."""
+        needs_enrichment = [
+            (icao, ac) for icao, ac in self.aircraft_data.items()
+            if not ac.get('aircraft_type') or ac['aircraft_type'] == 'Unknown'
+        ]
+        if not needs_enrichment:
+            return
+
+        # Try SkyAware db endpoint first (lightweight HTTP lookups grouped by prefix)
+        if self.data_source == 'skyaware' and self.skyaware_url:
+            self._enrich_from_skyaware_db(needs_enrichment)
+            return
+
+        # Fallback to offline FAA database
+        if not self.use_offline_db:
+            return
+        for icao, ac in needs_enrichment:
+            info = self._get_aircraft_info_from_database(icao)
+            if info:
+                if info.get('type_aircraft'):
+                    ac['aircraft_type'] = info['type_aircraft']
+                elif info.get('manufacturer') and info.get('model'):
+                    ac['aircraft_type'] = f"{info['manufacturer']} {info['model']}"
+                if info.get('registration') and not ac.get('registration'):
+                    ac['registration'] = info['registration']
+
+    def _enrich_from_skyaware_db(self, aircraft_list) -> None:
+        """Enrich aircraft type from the SkyAware db JSON files served alongside aircraft.json.
+
+        The SkyAware web server exposes /db/<PREFIX>.json files containing
+        aircraft type/registration keyed by hex suffix.  For ICAO A0E000,
+        fetch /db/A0.json and look up key E000.
+        """
+        # Derive base URL: strip /data/aircraft.json to get SkyAware root
+        base = self.skyaware_url
+        for suffix in ('/data/aircraft.json', '/aircraft.json'):
+            if base.endswith(suffix):
+                base = base[:-len(suffix)]
+                break
+
+        # Group by 2-char hex prefix to batch requests
+        by_prefix: Dict[str, list] = {}
+        for icao, ac in aircraft_list:
+            prefix = icao[:2].upper()
+            by_prefix.setdefault(prefix, []).append((icao, ac))
+
+        if not hasattr(self, '_skyaware_db_cache'):
+            self._skyaware_db_cache: Dict[str, Dict] = {}
+
+        enriched = 0
+        for prefix, items in by_prefix.items():
+            db_data = self._skyaware_db_cache.get(prefix)
+            if db_data is None:
+                try:
+                    url = f"{base}/db/{prefix}.json"
+                    resp = requests.get(url, timeout=3)
+                    if resp.status_code == 200:
+                        db_data = resp.json()
+                        self._skyaware_db_cache[prefix] = db_data
+                    else:
+                        self._skyaware_db_cache[prefix] = {}
+                        db_data = {}
+                except Exception:
+                    self._skyaware_db_cache[prefix] = {}
+                    db_data = {}
+
+            for icao, ac in items:
+                suffix = icao[2:].upper()
+                entry = db_data.get(suffix, {})
+                if entry.get('t'):
+                    ac['aircraft_type'] = entry['t']
+                    enriched += 1
+                if entry.get('r') and not ac.get('registration'):
+                    ac['registration'] = entry['r']
+
+        if enriched:
+            self.logger.info(f"[Flight Tracker] SkyAware DB enriched {enriched}/{len(aircraft_list)} aircraft with type data")
+
     def _ensure_database_loaded(self) -> None:
         """Lazy-load the aircraft database on first use.
         
@@ -1785,6 +1864,9 @@ class FlightTrackerPlugin(BasePlugin):
                 # FR24 enrichment for SkyAware users
                 if self.fr24_enrichment:
                     self._maybe_refresh_fr24_enrichment()
+
+                # Enrich remaining aircraft with offline DB (aircraft type)
+                self._enrich_from_offline_db()
 
             self.last_update = current_time
 
