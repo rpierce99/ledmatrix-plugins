@@ -24,7 +24,12 @@ logger = logging.getLogger(__name__)
 # Font loading
 # ---------------------------------------------------------------------------
 
-_FONT_DIR_CANDIDATES = ["assets/fonts", "../assets/fonts", "../../assets/fonts"]
+_FONT_DIR_CANDIDATES = [
+    os.path.join(os.path.dirname(__file__), "assets", "fonts"),
+    "assets/fonts",
+    "../assets/fonts",
+    "../../assets/fonts",
+]
 
 
 def _find_font(filename: str) -> Optional[str]:
@@ -47,6 +52,7 @@ def _ttf(filename: str, size: int) -> ImageFont.FreeTypeFont:
 # ---------------------------------------------------------------------------
 
 _LOGO_DIR_CANDIDATES = [
+    os.path.join(os.path.dirname(__file__), "assets", "airline_logos"),
     "assets/airline_logos",
     "../assets/airline_logos",
     "../../assets/airline_logos",
@@ -68,13 +74,16 @@ def _load_airline_logo(icao: str, max_h: int) -> Optional[Image.Image]:
                 bbox = logo.getbbox()
                 if bbox:
                     logo = logo.crop(bbox)
-                logo.thumbnail((max_h, max_h), Image.Resampling.LANCZOS)
+                # Allow wider logos — cap height to max_h, scale width proportionally
+                logo.thumbnail((max_h * 2, max_h), Image.Resampling.LANCZOS)
                 _logo_cache[key] = logo
+                logger.info(f"[Flight Tracker] Loaded airline logo: {icao} ({logo.size[0]}x{logo.size[1]})")
                 return logo
             except Exception as e:
-                logger.debug(f"[Flight Tracker] Failed to load logo {path}: {e}")
+                logger.warning(f"[Flight Tracker] Failed to load logo {path}: {e}")
                 break
 
+    logger.debug(f"[Flight Tracker] No logo found for {icao}")
     _logo_cache[key] = None
     return None
 
@@ -145,7 +154,7 @@ class FlightRenderer:
         elif h >= 48:
             self.font_large = _ttf("PressStart2P-Regular.ttf", 10)
             self.font_medium = _ttf("PressStart2P-Regular.ttf", 8)
-            self.font_small = _ttf("PressStart2P-Regular.ttf", 6)
+            self.font_small = _ttf("4x6-font.ttf", 6)
             self.sprite_scale = 1
         else:
             # Tiny display (64×32 or smaller)
@@ -498,72 +507,64 @@ class FlightRenderer:
         alt = self._fmt_alt(aircraft.get("altitude"))
         spd = self._fmt_spd(aircraft.get("speed"))
         trk = self._fmt_trk(aircraft.get("heading"))
-        vr = self._fmt_vr(aircraft.get("vertical_rate"))
         dist = format_distance(aircraft.get("distance_miles"), self.units_legacy)
         origin = aircraft.get("origin", "")
         destination = aircraft.get("destination", "")
-        airline = aircraft.get("airline_name", "")
         atype = aircraft.get("aircraft_type", "")
         color = tuple(aircraft.get("color", self.header_color))
+        airline_icao = aircraft.get("airline_icao", "")
 
-        prefix = ""
-        if aircraft.get("_anchor_arrival"):
-            prefix = "\u2192 "
-        elif aircraft.get("_anchor_departure"):
-            prefix = "\u2190 "
+        # --- Left zone: airline logo (large, vertically centered) ---
+        logo_w = 2  # left margin when no logo
+        logo = _load_airline_logo(airline_icao, h - 8) if airline_icao else None
+        if logo:
+            lx = 2
+            ly = (h - logo.height) // 2
+            img.paste(logo, (lx, ly), logo)
+            logo_w = lx + logo.width + 4
+            # Subtle separator line
+            draw.line([(logo_w - 2, 1), (logo_w - 2, h - 2)], fill=(40, 40, 40))
 
-        title_lh = self._lh(self.font_large)
-        data_lh = self._lh(self.font_medium)
+        rx = logo_w + 1  # right zone text start
 
-        content_h = title_lh + 2 + data_lh * 2
-        y = max(0, (h - content_h) // 2)
-
-        # Row 1: [sprite] callsign + airline
-        text_x = 2
-        if self.show_aircraft_icon:
-            sy = y + max(0, (title_lh - 8 * self.sprite_scale) // 2)
-            sw = self._draw_sprite(draw, 2, sy, airline_icao=aircraft.get("airline_icao", ""),
-                                   callsign=callsign, fallback_color=color)
-            text_x = 2 + sw
-        cs_str = f"{prefix}{callsign}"
-        if airline:
-            cs_str += f" {airline}"
-        self._draw_outlined(draw, cs_str, (text_x, y), self.font_large, color)
+        # --- Row 1: Callsign (altitude-colored) + counter ---
+        y = 2
+        self._draw(draw, callsign, (rx, y), self.font_medium, color)
         counter = f"{index + 1}/{total_count}"
         cw = self._tw(draw, counter, self.font_small)
-        self._draw(draw, counter, (w - cw - 2, y + (title_lh - self._fh(self.font_small)) // 2),
-                   self.font_small, self.dim_color)
-        y += title_lh
-        self._draw_sep(draw, y)
-        y += 2
+        self._draw(draw, counter, (w - cw - 2, y + 1), self.font_small, (80, 80, 80))
 
-        # Row 2: Route + distance (or just distance)
+        # --- Row 2: Route (blue) or aircraft type ---
+        y = 2 + self._lh(self.font_medium) + 1
         if origin and destination:
-            self._draw(draw, f"{origin} \u2192 {destination}", (2, y), self.font_medium, self.route_color)
+            route = f"{origin} > {destination}"
+            self._draw(draw, route, (rx, y), self.font_medium, self.route_color)
+            # Aircraft type after route if room
             if atype and atype != "Unknown":
-                type_x = max(self._tw(draw, f"{origin} > {destination}", self.font_medium) + 12, w // 3)
-                if type_x + self._tw(draw, atype, self.font_small) < w - 40:
-                    self._draw(draw, atype, (type_x, y + 1), self.font_small, self.dim_color)
+                rw_used = self._tw(draw, route, self.font_medium) + 8
+                if rx + rw_used + self._tw(draw, atype, self.font_small) < w - 2:
+                    self._draw(draw, atype, (rx + rw_used, y + 2), self.font_small, (100, 100, 100))
         elif atype and atype != "Unknown":
-            self._draw(draw, atype, (2, y), self.font_medium, self.dim_color)
+            self._draw(draw, atype, (rx, y), self.font_medium, (100, 100, 100))
 
-        dw = self._tw(draw, dist, self.font_medium)
-        self._draw(draw, dist, (w - dw - 2, y), self.font_medium, (200, 160, 0))
-        y += data_lh
+        # --- Row 3: Distance (amber, with label) ---
+        y = 2 + (self._lh(self.font_medium) + 1) * 2
+        self._draw(draw, "DST", (rx, y), self.font_small, (255, 255, 255))
+        self._draw(draw, dist, (rx + self._tw(draw, "DST ", self.font_small), y), self.font_medium, (220, 170, 0))
 
-        # Row 3: Metrics — compact, evenly spaced
-        if y + data_lh <= h:
-            vr_color = ((0, 255, 100) if vr.startswith("\u2191") else
-                        (255, 80, 80) if vr.startswith("\u2193") else self.dim_color)
-            parts = [(alt, self.metric_color), (spd, self.metric_color),
-                     (trk, self.dim_color), (vr, vr_color)]
-            total_tw = sum(self._tw(draw, t, self.font_medium) for t, _ in parts)
-            gap = max(3, (w - 4 - total_tw) // max(1, len(parts) - 1))
-            x = 2
-            for text, c in parts:
-                tw = self._tw(draw, text, self.font_medium)
-                self._draw(draw, text, (x, y), self.font_medium, c)
-                x += tw + gap
+        # --- Row 4: Labeled metrics in small font (clip to available width) ---
+        y = h - self._fh(self.font_small) - 2
+        label_color = (255, 255, 255)
+        value_color = (180, 180, 180)
+        x = rx
+        for label, value in [("ALT", alt), ("SPD", spd), ("HDG", trk)]:
+            needed = self._tw(draw, label, self.font_small) + 1 + self._tw(draw, value, self.font_small) + 3
+            if x + needed > w:
+                break  # don't clip mid-metric
+            self._draw(draw, label, (x, y), self.font_small, label_color)
+            x += self._tw(draw, label, self.font_small) + 1
+            self._draw(draw, value, (x, y), self.font_small, value_color)
+            x += self._tw(draw, value, self.font_small) + 3
 
         return img
 
@@ -574,6 +575,95 @@ class FlightRenderer:
 
     def render_area_card_image(self, aircraft, index=0, total_count=1):
         return self._render_area_card_to_image(aircraft, index, total_count)
+
+    # =====================================================================
+    # Stats Cards
+    # =====================================================================
+
+    def render_stat_card(self, title, title_color, aircraft, stat_label, stat_value,
+                         origin="", destination="", aircraft_type="", airline_icao="",
+                         record_time=""):
+        """Render a stats card (CLOSEST/FASTEST/HIGHEST/records) and push to display."""
+        img = self._render_stat_card_to_image(
+            title, title_color, aircraft, stat_label, stat_value,
+            origin, destination, aircraft_type, airline_icao, record_time)
+        self.dm.image = img.copy()
+        self.dm.update_display()
+
+    def _render_stat_card_to_image(self, title, title_color, aircraft, stat_label, stat_value,
+                                    origin="", destination="", aircraft_type="", airline_icao="",
+                                    record_time=""):
+        w, h = self.width, self.height
+        img = Image.new("RGB", (w, h), (0, 0, 0))
+        draw = ImageDraw.Draw(img)
+
+        callsign = aircraft.get("callsign", "---") if aircraft else "---"
+        alt = self._fmt_alt(aircraft.get("altitude")) if aircraft else ""
+        spd = self._fmt_spd(aircraft.get("speed")) if aircraft else ""
+        trk = self._fmt_trk(aircraft.get("heading")) if aircraft else ""
+        dist = format_distance(aircraft.get("distance_miles"), self.units_legacy) if aircraft else ""
+        color = tuple(aircraft.get("color", self.header_color)) if aircraft else self.header_color
+
+        # --- Left zone: airline logo ---
+        logo_w = 2
+        logo = _load_airline_logo(airline_icao, h - 8) if airline_icao else None
+        if logo:
+            img.paste(logo, (2, (h - logo.height) // 2), logo)
+            logo_w = 2 + logo.width + 4
+            draw.line([(logo_w - 2, 1), (logo_w - 2, h - 2)], fill=(40, 40, 40))
+
+        rx = logo_w + 1
+
+        # --- Row 1: Title badge + callsign ---
+        y = 2
+        self._draw(draw, title, (rx, y), self.font_medium, title_color)
+        cs_x = rx + self._tw(draw, title, self.font_medium) + 6
+        self._draw(draw, callsign, (cs_x, y), self.font_medium, color)
+
+        # --- Row 2: Hero stat (large, colored) ---
+        y = 2 + self._lh(self.font_medium) + 2
+        self._draw(draw, stat_label, (rx, y), self.font_small, (255, 255, 255))
+        lbl_w = self._tw(draw, stat_label + " ", self.font_small)
+        self._draw(draw, stat_value, (rx + lbl_w, y), self.font_medium, title_color)
+
+        # --- Row 3: Route or aircraft type ---
+        y = 2 + (self._lh(self.font_medium) + 2) * 2
+        if origin and destination and origin != "Unknown" and destination != "Unknown":
+            self._draw(draw, f"{origin} > {destination}", (rx, y), self.font_medium, self.route_color)
+            if aircraft_type and aircraft_type != "Unknown":
+                rt_w = self._tw(draw, f"{origin} > {destination}", self.font_medium) + 8
+                if rx + rt_w + self._tw(draw, aircraft_type, self.font_small) < w - 2:
+                    self._draw(draw, aircraft_type, (rx + rt_w, y + 2), self.font_small, (130, 130, 130))
+        elif aircraft_type and aircraft_type != "Unknown":
+            self._draw(draw, aircraft_type, (rx, y), self.font_medium, (130, 130, 130))
+
+        # --- Row 4: Complementary metrics (exclude the hero stat to avoid duplication) ---
+        y = h - self._fh(self.font_small) - 2
+        label_color = (255, 255, 255)
+        value_color = (180, 180, 180)
+        # Build list of metrics that aren't already shown as the hero
+        parts = []
+        if stat_label != "ALT" and alt:
+            parts.append(("ALT", alt))
+        if stat_label != "SPD" and spd:
+            parts.append(("SPD", spd))
+        if stat_label != "DST" and dist:
+            parts.append(("DST", dist))
+        if stat_label != "HDG" and trk:
+            parts.append(("HDG", trk))
+        if record_time:
+            parts.append(("REC", record_time))
+        x = rx
+        for label, value in parts:
+            needed = self._tw(draw, label, self.font_small) + 1 + self._tw(draw, value, self.font_small) + 3
+            if x + needed > w:
+                break
+            self._draw(draw, label, (x, y), self.font_small, label_color)
+            x += self._tw(draw, label, self.font_small) + 1
+            self._draw(draw, value, (x, y), self.font_small, value_color)
+            x += self._tw(draw, value, self.font_small) + 3
+
+        return img
 
     # =====================================================================
     # Error / No Data

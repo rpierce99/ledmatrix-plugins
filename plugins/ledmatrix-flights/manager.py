@@ -29,7 +29,7 @@ from aircraft_database import AircraftDatabase
 
 # Import extracted utility modules
 from utils import haversine_miles, altitude_to_color, categorize_aircraft, is_callsign_worth_fetching
-from units import null_safe
+from units import null_safe, format_distance
 from fetcher import create_fetcher, FR24DetailFetcher, _AIRLINE_ICAO_NAMES as AIRLINE_ICAO_NAMES_TABLE
 from enrichment import create_enrichment_provider
 from renderer import FlightRenderer
@@ -170,7 +170,8 @@ class FlightTrackerPlugin(BasePlugin):
         self.proximity_duration = self.proximity_config.get('duration_seconds', 30)
         
         # Runtime data
-        self.aircraft_data = {}  # ICAO -> aircraft dict
+        self.aircraft_data = {}  # ICAO -> aircraft dict (within map_radius_miles)
+        self.all_aircraft_data = {}  # ICAO -> aircraft dict (all with position, for stats)
         self.aircraft_trails = {}  # ICAO -> list of (lat, lon, timestamp) tuples
         self.last_update = 0
         self.last_fetch = 0
@@ -1281,12 +1282,11 @@ class FlightTrackerPlugin(BasePlugin):
             # Calculate distance from center
             distance_miles = self._calculate_distance(lat, lon, self.center_lat, self.center_lon)
             
-            # Filter by radius
-            if distance_miles > self.map_radius_miles:
-                continue
-            
-            aircraft_in_range += 1
-            
+            # Track whether in radius for map/area modes
+            in_range = distance_miles <= self.map_radius_miles
+            if in_range:
+                aircraft_in_range += 1
+
             active_icao.add(icao)
             
             # Extract other fields
@@ -1307,11 +1307,17 @@ class FlightTrackerPlugin(BasePlugin):
             # Calculate color based on altitude
             color = self._altitude_to_color(altitude)
 
+            # Derive airline ICAO from callsign (e.g. UAL410 -> UAL, SWA2447 -> SWA)
+            airline_icao = ''
+            if callsign and len(callsign) >= 4 and callsign[:3].isalpha() and not callsign[:3] == callsign:
+                airline_icao = callsign[:3].upper()
+
             # Build aircraft dict
             aircraft_info = {
                 'icao': icao,
                 'callsign': callsign,
                 'registration': registration,
+                'airline_icao': airline_icao,
                 'lat': lat,
                 'lon': lon,
                 'altitude': altitude,
@@ -1326,7 +1332,10 @@ class FlightTrackerPlugin(BasePlugin):
                 'last_seen': current_time
             }
             
-            # Update aircraft data
+            # Update aircraft data — all_aircraft_data for stats, aircraft_data for map/area
+            self.all_aircraft_data[icao] = aircraft_info
+            if not in_range:
+                continue
             self.aircraft_data[icao] = aircraft_info
             
             # Update trail if enabled
@@ -1341,12 +1350,16 @@ class FlightTrackerPlugin(BasePlugin):
                     self.aircraft_trails[icao] = self.aircraft_trails[icao][-self.trail_length:]
         
         # Clean up old aircraft (not seen in last 60 seconds)
-        stale_icao = [icao for icao, info in self.aircraft_data.items() 
+        stale_icao = [icao for icao, info in self.aircraft_data.items()
                       if current_time - info['last_seen'] > 60]
         for icao in stale_icao:
             del self.aircraft_data[icao]
             if icao in self.aircraft_trails:
                 del self.aircraft_trails[icao]
+        stale_all = [icao for icao, info in self.all_aircraft_data.items()
+                     if current_time - info['last_seen'] > 60]
+        for icao in stale_all:
+            del self.all_aircraft_data[icao]
         
         self.logger.info(f"[Flight Tracker] Summary - Total: {total_aircraft}, With position: {aircraft_with_position}, In range ({self.map_radius_miles}mi): {aircraft_in_range}, Tracking: {len(self.aircraft_data)}, Removed stale: {len(stale_icao)}")
         self._update_flight_records()
@@ -2540,28 +2553,28 @@ class FlightTrackerPlugin(BasePlugin):
         self.display_manager.update_display()
     
     def _display_stats(self, force_clear: bool = False) -> None:
-        """Display flight statistics."""
+        """Display flight statistics using the renderer's stat card layout.
+
+        Uses all_aircraft_data (full ADS-B range) so stats reflect the true
+        highest/fastest/closest across everything the receiver can see, not
+        just the map_radius_miles subset.
+        """
         if force_clear:
             self.display_manager.clear()
 
+        # Use full-range data for stats; fall back to radius-filtered if empty
+        stats_pool = self.all_aircraft_data or self.aircraft_data
         has_records = self.flight_records_enabled and (self._closest_record or self._farthest_record)
 
-        if not self.aircraft_data and not has_records:
-            # No aircraft and no records to display
-            img = Image.new('RGB', (self.display_width, self.display_height), (0, 0, 0))
-            draw = ImageDraw.Draw(img)
-            self._draw_text_with_outline(draw, "No Aircraft",
-                                       (self.display_width // 2 - 30, self.display_height // 2 - 4),
-                                       self.fonts['medium'], fill=(200, 200, 200), outline_color=(0, 0, 0))
-            self.display_manager.image = img.copy()
-            self.display_manager.update_display()
+        if not stats_pool and not has_records:
+            self._renderer.render_error("No Aircraft")
             return
 
         # When no live aircraft but records exist, jump straight to a record slot
-        if not self.aircraft_data and has_records:
+        if not stats_pool and has_records:
             if self.current_stat < 3:
-                self.current_stat = 3  # Jump to REC CLOSE
-        
+                self.current_stat = 3
+
         # Rotate stats every 10 seconds
         # Slots: 0=Closest, 1=Fastest, 2=Highest, 3=Record Closest, 4=Record Farthest
         current_time = time.time()
@@ -2570,347 +2583,95 @@ class FlightTrackerPlugin(BasePlugin):
             self.current_stat = (self.current_stat + 1) % num_stats
             self.last_stat_change = current_time
 
-        # Create image
-        img = Image.new('RGB', (self.display_width, self.display_height), (0, 0, 0))
-        draw = ImageDraw.Draw(img)
-
-        # Determine layout based on display size
-        dsize = self._display_size()
-        is_small_display = dsize in ('tiny', 'small')
-
-        # Get statistics
+        # Resolve which aircraft/record to show
+        aircraft = None
         record_data = None
+        title = ""
+        title_color = (255, 255, 255)
+        stat_label = ""
+        stat_value = ""
 
         if self.current_stat == 0:
-            aircraft = min(self.aircraft_data.values(), key=lambda a: a['distance_miles'])
+            aircraft = min(stats_pool.values(), key=lambda a: a['distance_miles'])
             title = "CLOSEST"
             title_color = (255, 100, 0)
+            stat_label = "DST"
+            stat_value = format_distance(aircraft['distance_miles'], self._renderer.units_legacy)
         elif self.current_stat == 1:
-            aircraft = max(self.aircraft_data.values(), key=lambda a: a['speed'])
+            aircraft = max(stats_pool.values(), key=lambda a: a['speed'])
             title = "FASTEST"
             title_color = (0, 255, 100)
+            stat_label = "SPD"
+            stat_value = self._renderer._fmt_spd(aircraft['speed'])
         elif self.current_stat == 2:
-            aircraft = max(self.aircraft_data.values(), key=lambda a: a['altitude'])
+            aircraft = max(stats_pool.values(), key=lambda a: a['altitude'])
             title = "HIGHEST"
             title_color = (100, 150, 255)
-        elif self.current_stat == 3:
-            # Record: all-time closest
-            if self._closest_record:
-                record_data = self._closest_record
-                aircraft = None
-                title = "REC CLOSE"
-                title_color = (255, 80, 0)
-            else:
-                # No record yet — fall back to closest live
-                aircraft = min(self.aircraft_data.values(), key=lambda a: a['distance_miles'])
+            stat_label = "ALT"
+            stat_value = self._renderer._fmt_alt(aircraft['altitude'])
+        elif self.current_stat == 3 and self._closest_record:
+            record_data = self._closest_record
+            title = "REC CLOSE"
+            title_color = (255, 80, 0)
+            stat_label = "DST"
+            stat_value = format_distance(record_data['distance_miles'], self._renderer.units_legacy)
+        elif self.current_stat == 4 and self._farthest_record:
+            record_data = self._farthest_record
+            title = "REC FAR"
+            title_color = (80, 150, 255)
+            stat_label = "DST"
+            stat_value = format_distance(record_data['distance_miles'], self._renderer.units_legacy)
+        else:
+            # Fallback to closest live
+            if stats_pool:
+                aircraft = min(stats_pool.values(), key=lambda a: a['distance_miles'])
                 title = "CLOSEST"
                 title_color = (255, 100, 0)
-        else:
-            # Record: all-time farthest
-            if self._farthest_record:
-                record_data = self._farthest_record
-                aircraft = None
-                title = "REC FAR"
-                title_color = (80, 150, 255)
+                stat_label = "DST"
+                stat_value = format_distance(aircraft['distance_miles'], self._renderer.units_legacy)
             else:
-                aircraft = max(self.aircraft_data.values(), key=lambda a: a['distance_miles'])
-                title = "FARTHEST"
-                title_color = (80, 150, 255)
-        
-        # If showing a record snapshot, extract data directly from it
+                self._renderer.render_error("No Data")
+                return
+
+        # Build the data for the renderer
         if record_data:
-            callsign_disp = record_data.get('callsign', '?')
-            origin = record_data.get('origin') or 'Unknown'
-            destination = record_data.get('destination') or 'Unknown'
-            aircraft_type = record_data.get('aircraft_type') or 'Unknown'
-            airline_name = record_data.get('airline_name') or ''
-            dist_disp = f"{record_data['distance_miles']:.2f}mi"
-            alt_disp = f"{int(record_data.get('altitude', 0))}ft"
-            spd_disp = f"{int(record_data.get('speed', 0))}kt"
+            ac_data = record_data
+            origin = record_data.get('origin', '')
+            destination = record_data.get('destination', '')
+            aircraft_type = record_data.get('aircraft_type', '')
+            airline_icao = record_data.get('airline_icao', '')
             rec_ts = record_data.get('timestamp', '')
             if rec_ts:
                 try:
                     rec_ts = datetime.fromisoformat(rec_ts).strftime('%m/%d %H:%M')
                 except ValueError:
                     pass
-            manufacturer = 'Unknown'
-            model = 'Unknown'
-            if aircraft_type and aircraft_type != 'Unknown':
-                parts = aircraft_type.split(' ', 1)
-                manufacturer, model = (parts[0], parts[1]) if len(parts) == 2 else ('', aircraft_type)
-            show_route = origin != 'Unknown' and destination != 'Unknown'
-            operator = airline_name or 'Unknown'
-            # Render record display and return early
-            if is_small_display:
-                y_offset = 1
-                self._draw_text_with_outline(draw, title, (2, y_offset),
-                                            self.fonts['title_medium'], fill=title_color, outline_color=(0, 0, 0))
-                y_offset += self._calculate_line_spacing(self.fonts['title_medium'])
-                self._draw_text_smart(draw, callsign_disp, (2, y_offset),
-                                    self.fonts['data_small'], fill=(255, 255, 255), use_outline=False)
-                y_offset += self._calculate_line_spacing(self.fonts['data_small'])
-                self._draw_text_smart(draw, dist_disp, (2, y_offset),
-                                    self.fonts['data_medium'], fill=title_color, use_outline=False)
-                if show_route and y_offset + self._calculate_line_spacing(self.fonts['data_small']) <= self.display_height:
-                    right_x = self.display_width - 60
-                    self._draw_text_smart(draw, f"FROM:{origin}", (right_x, 1),
-                                        self.fonts['data_small'], fill=(150, 255, 150), use_outline=False)
-                    self._draw_text_smart(draw, f"TO:{destination}", (right_x, 1 + self._calculate_line_spacing(self.fonts['data_small'])),
-                                        self.fonts['data_small'], fill=(150, 255, 150), use_outline=False)
-                if rec_ts:
-                    self._draw_text_smart(draw, rec_ts, (2, self.display_height - 8),
-                                        self.fonts['data_small'], fill=(120, 120, 120), use_outline=False)
-            else:
-                y_offset = 4
-                self._draw_text_with_outline(draw, title, (self.display_width // 2 - 30, y_offset),
-                                            self.fonts['title_large'], fill=title_color, outline_color=(0, 0, 0))
-                y_offset += self._calculate_line_spacing(self.fonts['title_large']) + 4
-                self._draw_text_smart(draw, f"Callsign: {callsign_disp}", (4, y_offset),
-                                    self.fonts['data_large'], fill=(255, 255, 255), use_outline=False)
-                y_offset += self._calculate_line_spacing(self.fonts['data_large'])
-                self._draw_text_smart(draw, f"Distance: {dist_disp}", (4, y_offset),
-                                    self.fonts['data_large'], fill=title_color, use_outline=False)
-                y_offset += self._calculate_line_spacing(self.fonts['data_large']) + 2
-                if y_offset + self._calculate_line_spacing(self.fonts['data_medium']) <= self.display_height:
-                    self._draw_text_smart(draw, f"Aircraft: {aircraft_type}", (4, y_offset),
-                                        self.fonts['data_medium'], fill=(200, 200, 200), use_outline=False)
-                    y_offset += self._calculate_line_spacing(self.fonts['data_medium'])
-                if y_offset + self._calculate_line_spacing(self.fonts['data_medium']) <= self.display_height:
-                    self._draw_text_smart(draw, f"{alt_disp}  {spd_disp}", (4, y_offset),
-                                        self.fonts['data_medium'], fill=(180, 180, 255), use_outline=False)
-                    y_offset += self._calculate_line_spacing(self.fonts['data_medium'])
-                if show_route:
-                    right_x = self.display_width - 80
-                    right_y = 4
-                    if right_y + self._calculate_line_spacing(self.fonts['data_medium']) <= self.display_height:
-                        self._draw_text_smart(draw, f"From: {origin}", (right_x, right_y),
-                                            self.fonts['data_medium'], fill=(150, 255, 150), use_outline=False)
-                        right_y += self._calculate_line_spacing(self.fonts['data_medium'])
-                    if right_y + self._calculate_line_spacing(self.fonts['data_medium']) <= self.display_height:
-                        self._draw_text_smart(draw, f"To: {destination}", (right_x, right_y),
-                                            self.fonts['data_medium'], fill=(150, 255, 150), use_outline=False)
-                if rec_ts:
-                    self._draw_text_smart(draw, rec_ts, (4, self.display_height - 10),
-                                        self.fonts['data_small'], fill=(120, 120, 120), use_outline=False)
-            self.display_manager.image = img.copy()
-            self.display_manager.update_display()
-            return
-
-        # Get flight plan data once and cache it for this display cycle
-        # Pass ICAO24 for offline database / FR24 enrichment lookup
-        flight_plan = self._get_flight_plan_data(aircraft['callsign'], aircraft.get('icao'))
-        origin = flight_plan.get('origin', 'Unknown')
-        destination = flight_plan.get('destination', 'Unknown')
-        aircraft_type = flight_plan.get('aircraft_type', 'Unknown')
-        airline_name = flight_plan.get('airline_name') or aircraft.get('airline_name') or ''
-
-        # Parse manufacturer and model from aircraft_type
-        manufacturer = 'Unknown'
-        model = 'Unknown'
-
-        if aircraft_type and aircraft_type != 'Unknown':
-            # Try to split manufacturer and model (e.g., "Boeing 737-800")
-            parts = aircraft_type.split(' ', 1)
-            if len(parts) == 2:
-                manufacturer = parts[0]
-                model = parts[1]
-            else:
-                # If we can't split, use aircraft_type as model
-                model = aircraft_type
-
-        # Get operator/owner from flight plan data or airline name
-        operator = airline_name or flight_plan.get('operator', 'Unknown')
-        if operator == 'Unknown':
-            operator = flight_plan.get('owner_name', 'Unknown')
-
-        # Log if we used offline database
-        if flight_plan.get('source') == 'offline_db':
-            self.logger.debug(f"[Flight Tracker] Using offline database for {aircraft['callsign']}: {manufacturer} {model}")
-
-        # Improve aircraft type display with better categorization if still unknown
-        if model == 'Unknown':
-            categorized = self._categorize_aircraft(aircraft['callsign'])
-            if categorized != 'Unknown':
-                model = categorized
-            # Log uncategorized aircraft for debugging
-            if model == 'Unknown':
-                self.logger.debug(f"[Flight Tracker] Unclassified aircraft: {aircraft['callsign']}")
-
-        # Determine if we should show origin/destination
-        # Show route if we have it from any source (FR24, FlightAware, or offline DB)
-        show_route = (origin != 'Unknown' and destination != 'Unknown')
-
-        # Flight progress
-        progress = self._compute_flight_progress(aircraft)
-        delay_str = self._format_delay(aircraft)
-        
-        if dsize == 'tiny':
-            # Tiny display: title abbreviation + callsign + key stat only
-            title_abbr = title[:4]  # e.g. "CLOS", "FAST", "HIGH"
-            self._draw_text_smart(draw, f"{title_abbr}:{aircraft['callsign']}", (1, 1),
-                                self.fonts['data_small'], fill=title_color, use_outline=False)
-            if self.current_stat == 0:
-                stat_text = f"{aircraft['distance_miles']:.1f}mi"
-            elif self.current_stat == 1:
-                stat_text = f"{int(aircraft['speed'])}kt"
-            else:
-                stat_text = f"{int(aircraft['altitude'])}ft"
-            y2 = self._calculate_line_spacing(self.fonts['data_small']) + 1
-            if y2 < self.display_height:
-                self._draw_text_smart(draw, stat_text, (1, y2),
-                                    self.fonts['data_small'], fill=aircraft['color'], use_outline=False)
-            if show_route:
-                y3 = y2 + self._calculate_line_spacing(self.fonts['data_small'])
-                if y3 < self.display_height:
-                    self._draw_text_smart(draw, f"{origin}-{destination}", (1, y3),
-                                        self.fonts['data_small'], fill=(150, 255, 150), use_outline=False)
-
-        elif is_small_display:
-            # Small display layout with dynamic spacing
-            y_offset = 1
-
-            # Title
-            self._draw_text_with_outline(draw, title, (2, y_offset),
-                                       self.fonts['title_medium'], fill=title_color, outline_color=(0, 0, 0))
-            y_offset += self._calculate_line_spacing(self.fonts['title_medium'])
-
-            # Callsign
-            self._draw_text_smart(draw, aircraft['callsign'], (2, y_offset),
-                                self.fonts['data_small'], fill=(255, 255, 255), use_outline=False)
-            y_offset += self._calculate_line_spacing(self.fonts['data_small'])
-
-            # Key stat
-            if self.current_stat == 0:
-                stat_text = f"{aircraft['distance_miles']:.2f}mi"
-            elif self.current_stat == 1:
-                stat_text = f"{int(aircraft['speed'])}kt"
-            else:
-                stat_text = f"{int(aircraft['altitude'])}ft"
-
-            self._draw_text_smart(draw, stat_text, (2, y_offset),
-                                self.fonts['data_medium'], fill=aircraft['color'], use_outline=False)
-            y_offset += self._calculate_line_spacing(self.fonts['data_medium']) + 1
-
-            # Additional info only if space
-            if y_offset + self._calculate_line_spacing(self.fonts['data_small']) <= self.display_height:
-                self._draw_text_smart(draw, f"ALT:{int(aircraft['altitude'])} SPD:{int(aircraft['speed'])}", (2, y_offset),
-                                    self.fonts['data_small'], fill=(150, 150, 150), use_outline=False)
-
-            # Right side info
-            right_x = self.display_width - 60
-            right_y = 1
-
-            # Operator/airline
-            if operator and operator != 'Unknown' and right_y + self._calculate_line_spacing(self.fonts['data_small']) <= self.display_height:
-                op_disp = operator[:12] if len(operator) > 12 else operator
-                self._draw_text_smart(draw, f"OPR:{op_disp}", (right_x, right_y),
-                                    self.fonts['data_small'], fill=(200, 200, 200), use_outline=False)
-                right_y += self._calculate_line_spacing(self.fonts['data_small'])
-
-            # Model
-            if model and model != 'Unknown' and right_y + self._calculate_line_spacing(self.fonts['data_small']) <= self.display_height:
-                self._draw_text_smart(draw, f"MDL:{model[:10]}", (right_x, right_y),
-                                    self.fonts['data_small'], fill=(200, 200, 200), use_outline=False)
-                right_y += self._calculate_line_spacing(self.fonts['data_small'])
-
-            # Route
-            if show_route and right_y + self._calculate_line_spacing(self.fonts['data_small']) <= self.display_height:
-                route_disp = f"{origin}->{destination}"
-                if progress is not None:
-                    route_disp += f" {int(progress * 100)}%"
-                self._draw_text_smart(draw, route_disp, (right_x, right_y),
-                                    self.fonts['data_small'], fill=(150, 255, 150), use_outline=False)
-                right_y += self._calculate_line_spacing(self.fonts['data_small'])
-
-            # Delay
-            if delay_str and right_y + self._calculate_line_spacing(self.fonts['data_small']) <= self.display_height:
-                self._draw_text_smart(draw, delay_str, (right_x, right_y),
-                                    self.fonts['data_small'], fill=self._delay_color(delay_str), use_outline=False)
+            if not airline_icao:
+                cs = record_data.get('callsign', '')
+                if cs and len(cs) >= 4 and cs[:3].isalpha():
+                    airline_icao = cs[:3].upper()
         else:
-            # Large display layout with dynamic spacing
-            y_offset = 4
+            ac_data = aircraft
+            # Get enrichment data
+            flight_plan = self._get_flight_plan_data(aircraft['callsign'], aircraft.get('icao'))
+            origin = flight_plan.get('origin', '')
+            destination = flight_plan.get('destination', '')
+            aircraft_type = flight_plan.get('aircraft_type', '')
+            airline_icao = aircraft.get('airline_icao', '')
 
-            # Title
-            self._draw_text_with_outline(draw, title, (self.display_width // 2 - 30, y_offset),
-                                       self.fonts['title_large'], fill=title_color, outline_color=(0, 0, 0))
-            y_offset += self._calculate_line_spacing(self.fonts['title_large']) + 4
+        self._renderer.render_stat_card(
+            title=title,
+            title_color=title_color,
+            aircraft=ac_data,
+            stat_label=stat_label,
+            stat_value=stat_value,
+            origin=origin,
+            destination=destination,
+            aircraft_type=aircraft_type,
+            airline_icao=airline_icao,
+            record_time=rec_ts if record_data else "",
+        )
 
-            # Callsign + optional airline
-            callsign_line = f"Callsign: {aircraft['callsign']}"
-            if airline_name:
-                callsign_line += f"  ({airline_name[:16]})"
-            self._draw_text_smart(draw, callsign_line, (4, y_offset),
-                                self.fonts['data_large'], fill=(255, 255, 255), use_outline=False)
-            y_offset += self._calculate_line_spacing(self.fonts['data_large'])
-
-            # Key statistic
-            if self.current_stat == 0:
-                self._draw_text_smart(draw, f"Distance: {aircraft['distance_miles']:.2f} miles", (4, y_offset),
-                                    self.fonts['data_large'], fill=title_color, use_outline=False)
-            elif self.current_stat == 1:
-                self._draw_text_smart(draw, f"Speed: {int(aircraft['speed'])} knots", (4, y_offset),
-                                    self.fonts['data_large'], fill=title_color, use_outline=False)
-            else:
-                self._draw_text_smart(draw, f"Altitude: {int(aircraft['altitude'])} ft", (4, y_offset),
-                                    self.fonts['data_large'], fill=title_color, use_outline=False)
-            y_offset += self._calculate_line_spacing(self.fonts['data_large']) + 2
-
-            if y_offset + self._calculate_line_spacing(self.fonts['data_medium']) <= self.display_height:
-                self._draw_text_smart(draw, f"Altitude: {int(aircraft['altitude'])} ft", (4, y_offset),
-                                    self.fonts['data_medium'], fill=aircraft['color'], use_outline=False)
-                y_offset += self._calculate_line_spacing(self.fonts['data_medium'])
-
-            if y_offset + self._calculate_line_spacing(self.fonts['data_medium']) <= self.display_height:
-                self._draw_text_smart(draw, f"Speed: {int(aircraft['speed'])} knots", (4, y_offset),
-                                    self.fonts['data_medium'], fill=(200, 200, 200), use_outline=False)
-                y_offset += self._calculate_line_spacing(self.fonts['data_medium'])
-
-            if y_offset + self._calculate_line_spacing(self.fonts['data_medium']) <= self.display_height:
-                self._draw_text_smart(draw, f"Distance: {aircraft['distance_miles']:.2f} miles", (4, y_offset),
-                                    self.fonts['data_medium'], fill=(200, 200, 200), use_outline=False)
-                y_offset += self._calculate_line_spacing(self.fonts['data_medium'])
-
-            if aircraft['heading'] and y_offset + self._calculate_line_spacing(self.fonts['data_medium']) <= self.display_height:
-                self._draw_text_smart(draw, f"Heading: {int(aircraft['heading'])}°", (4, y_offset),
-                                    self.fonts['data_medium'], fill=(150, 150, 150), use_outline=False)
-                y_offset += self._calculate_line_spacing(self.fonts['data_medium'])
-
-            # Right side info
-            right_x = self.display_width - 80
-            right_y = 4
-
-            if manufacturer and manufacturer != 'Unknown' and right_y + self._calculate_line_spacing(self.fonts['data_medium']) <= self.display_height:
-                self._draw_text_smart(draw, f"Manufacturer: {manufacturer}", (right_x, right_y),
-                                    self.fonts['data_medium'], fill=(200, 200, 200), use_outline=False)
-                right_y += self._calculate_line_spacing(self.fonts['data_medium'])
-
-            if model and model != 'Unknown' and right_y + self._calculate_line_spacing(self.fonts['data_medium']) <= self.display_height:
-                self._draw_text_smart(draw, f"Model: {model}", (right_x, right_y),
-                                    self.fonts['data_medium'], fill=(200, 200, 200), use_outline=False)
-                right_y += self._calculate_line_spacing(self.fonts['data_medium'])
-
-            if operator and operator != 'Unknown' and right_y + self._calculate_line_spacing(self.fonts['data_medium']) <= self.display_height:
-                op_disp = operator[:20] if len(operator) > 20 else operator
-                self._draw_text_smart(draw, f"Operator: {op_disp}", (right_x, right_y),
-                                    self.fonts['data_medium'], fill=(200, 200, 200), use_outline=False)
-                right_y += self._calculate_line_spacing(self.fonts['data_medium'])
-
-            if show_route and right_y + self._calculate_line_spacing(self.fonts['data_medium']) <= self.display_height:
-                route_disp = f"From: {origin}  To: {destination}"
-                if progress is not None:
-                    route_disp += f"  ({int(progress * 100)}%)"
-                self._draw_text_smart(draw, route_disp, (right_x, right_y),
-                                    self.fonts['data_medium'], fill=(150, 255, 150), use_outline=False)
-                right_y += self._calculate_line_spacing(self.fonts['data_medium'])
-
-            if delay_str and right_y + self._calculate_line_spacing(self.fonts['data_medium']) <= self.display_height:
-                self._draw_text_smart(draw, f"Status: {delay_str}", (right_x, right_y),
-                                    self.fonts['data_medium'], fill=self._delay_color(delay_str), use_outline=False)
-        
-        # Display the image
-        self.display_manager.image = img.copy()
-        self.display_manager.update_display()
-    
     def has_live_content(self) -> bool:
         """Check if plugin has live/urgent content (proximity alerts)."""
         if not self.proximity_enabled:
