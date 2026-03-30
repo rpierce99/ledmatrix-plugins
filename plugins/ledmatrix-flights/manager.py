@@ -1070,7 +1070,8 @@ class FlightTrackerPlugin(BasePlugin):
                         self._skyaware_db_cache[prefix] = db_data
                     else:
                         db_data = {}  # don't cache — allow retry next cycle
-                except Exception:
+                except (requests.RequestException, IOError, json.JSONDecodeError) as e:
+                    self.logger.debug(f"[Flight Tracker] SkyAware DB fetch failed for prefix {prefix}: {e}")
                     db_data = {}  # don't cache — allow retry next cycle
 
             for icao, ac in items:
