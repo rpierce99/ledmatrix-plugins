@@ -13,7 +13,11 @@
       "type": "string",
       "title": "Data Source",
       "description": "Aircraft data source. 'skyaware' requires a local ADS-B receiver (dump1090/SkyAware). 'flightradar24' uses the FlightRadar24 feed. 'opensky' uses the free OpenSky Network API.",
-      "enum": ["skyaware", "flightradar24", "opensky"],
+      "enum": [
+        "skyaware",
+        "flightradar24",
+        "opensky"
+      ],
       "default": "skyaware"
     },
     "fr24_enrichment": {
@@ -121,7 +125,13 @@
         "tile_provider": {
           "type": "string",
           "description": "Map tile provider",
-          "enum": ["osm", "carto", "carto_dark", "stamen", "esri"],
+          "enum": [
+            "osm",
+            "carto",
+            "carto_dark",
+            "stamen",
+            "esri"
+          ],
           "default": "carto_dark"
         },
         "tile_size": {
@@ -176,7 +186,10 @@
           "default": "https://maps.chuck-builds.com"
         }
       },
-      "required": ["enabled", "tile_provider"]
+      "required": [
+        "enabled",
+        "tile_provider"
+      ]
     },
     "proximity_alert": {
       "type": "object",
@@ -202,75 +215,9 @@
           "default": 30
         }
       },
-      "required": ["enabled"]
-    },
-    "flight_plan_enabled": {
-      "type": "boolean",
-      "description": "Enable flight plan fetching from FlightAware API. Note: FR24 enrichment (fr24_enrichment) also provides origin/destination data for free without this setting.",
-      "default": false
-    },
-    "max_api_calls_per_hour": {
-      "type": "integer",
-      "description": "Maximum FlightAware API calls per hour",
-      "minimum": 1,
-      "maximum": 100,
-      "default": 25
-    },
-    "daily_api_budget": {
-      "type": "integer",
-      "description": "Maximum FlightAware API calls per day",
-      "minimum": 1,
-      "maximum": 200,
-      "default": 60
-    },
-    "flight_plan_cache_ttl_hours": {
-      "type": "integer",
-      "description": "Flight plan cache time-to-live in hours",
-      "minimum": 1,
-      "maximum": 168,
-      "default": 12
-    },
-    "min_callsign_length": {
-      "type": "integer",
-      "description": "Minimum callsign length to fetch flight plan data",
-      "minimum": 3,
-      "maximum": 10,
-      "default": 4
-    },
-    "airline_callsign_prefixes": {
-      "type": "array",
-      "description": "List of airline callsign prefixes to prioritize for flight plan fetching",
-      "items": {
-        "type": "string"
-      },
-      "default": ["AAL", "UAL", "DAL", "SWA", "JBU", "ASQ", "ENY", "FFT", "NKS", "F9", "G4", "B6", "WN", "AA", "UA", "DL"]
-    },
-    "background_service": {
-      "type": "object",
-      "description": "Background service configuration for fetching flight plan data without blocking the display",
-      "properties": {
-        "enabled": {
-          "type": "boolean",
-          "description": "Enable the background service for flight plan fetching",
-          "default": true
-        },
-        "fetch_interval_hours": {
-          "type": "integer",
-          "description": "Interval in hours between background fetch runs",
-          "minimum": 1,
-          "maximum": 168,
-          "default": 4
-        },
-        "max_calls_per_run": {
-          "type": "integer",
-          "description": "Maximum number of flight plan calls fetched per background run",
-          "minimum": 1,
-          "maximum": 100,
-          "default": 10
-        }
-      },
-      "required": ["enabled"],
-      "additionalProperties": false
+      "required": [
+        "enabled"
+      ]
     },
     "use_offline_database": {
       "type": "boolean",
@@ -293,49 +240,83 @@
       "type": "string",
       "title": "Display Mode",
       "description": "Display mode. 'area' shows multi-aircraft list with FlightWall metrics. 'flight_tracking' shows tracked flight details. 'auto' chooses based on context.",
-      "enum": ["map", "overhead", "stats", "area", "flight_tracking", "auto"],
+      "enum": [
+        "map",
+        "overhead",
+        "stats",
+        "area",
+        "flight_tracking",
+        "auto"
+      ],
       "default": "auto"
     },
     "units": {
       "type": "string",
       "title": "Unit System",
       "description": "Legacy unit system toggle. For finer control use the per-metric options below.",
-      "enum": ["imperial", "metric"],
+      "enum": [
+        "imperial",
+        "metric"
+      ],
       "default": "imperial"
     },
     "altitude_unit": {
       "type": "string",
       "title": "Altitude Unit",
       "description": "Altitude display unit.",
-      "enum": ["ft", "m", "km", "nmi"],
+      "enum": [
+        "ft",
+        "m",
+        "km",
+        "nmi"
+      ],
       "default": "ft"
     },
     "speed_unit": {
       "type": "string",
       "title": "Speed Unit",
       "description": "Speed display unit.",
-      "enum": ["kn", "mph", "kmh", "ms", "mach"],
+      "enum": [
+        "kn",
+        "mph",
+        "kmh",
+        "ms",
+        "mach"
+      ],
       "default": "kn"
     },
     "track_format": {
       "type": "string",
       "title": "Track Format",
       "description": "Track/heading display format. 'deg' = numeric degrees (090deg), 'cardinal' = compass point (E).",
-      "enum": ["deg", "cardinal"],
+      "enum": [
+        "deg",
+        "cardinal"
+      ],
       "default": "deg"
     },
     "vr_unit": {
       "type": "string",
       "title": "Vertical Rate Unit",
       "description": "Vertical rate display unit.",
-      "enum": ["fpm", "fts", "ms", "mph", "kmh"],
+      "enum": [
+        "fpm",
+        "fts",
+        "ms",
+        "mph",
+        "kmh"
+      ],
       "default": "fpm"
     },
     "layout": {
       "type": "string",
       "title": "Flight Detail Layout",
       "description": "Force a specific flight detail layout. Leave empty for auto-selection based on display width.",
-      "enum": ["", "flight_detail_wide", "flight_detail_condensed"],
+      "enum": [
+        "",
+        "flight_detail_wide",
+        "flight_detail_condensed"
+      ],
       "default": ""
     },
     "widescreen_threshold": {
@@ -350,10 +331,18 @@
       "type": "array",
       "title": "Airport Name Color",
       "description": "RGB color for airport full names in widescreen layout.",
-      "items": { "type": "integer", "minimum": 0, "maximum": 255 },
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 255
+      },
       "minItems": 3,
       "maxItems": 3,
-      "default": [0, 120, 255]
+      "default": [
+        0,
+        120,
+        255
+      ]
     },
     "max_aircraft": {
       "type": "integer",
@@ -381,14 +370,18 @@
       "type": "array",
       "title": "Aircraft Category Filter",
       "description": "ICAO aircraft categories to display (e.g. A1, A2, A3). Empty list shows all.",
-      "items": { "type": "string" },
+      "items": {
+        "type": "string"
+      },
       "default": []
     },
     "tracked_flights": {
       "type": "array",
       "title": "Tracked Flights",
       "description": "Flight numbers, callsigns, or tail numbers to track specifically (max 3). E.g. [\"AA123\", \"N12345\"]",
-      "items": { "type": "string" },
+      "items": {
+        "type": "string"
+      },
       "maxItems": 3,
       "default": []
     },
@@ -410,35 +403,63 @@
       "type": "string",
       "title": "Enrichment Provider",
       "description": "Route enrichment source. 'auto': free sources first, FlightAware if key present. 'opensky': free OpenSky only. 'flightaware': requires API key.",
-      "enum": ["auto", "opensky", "flightaware"],
+      "enum": [
+        "auto",
+        "opensky",
+        "flightaware"
+      ],
       "default": "auto"
     },
     "header_color": {
       "type": "array",
       "title": "Header Color",
       "description": "RGB color for headers/callsigns in area and flight tracking modes.",
-      "items": { "type": "integer", "minimum": 0, "maximum": 255 },
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 255
+      },
       "minItems": 3,
       "maxItems": 3,
-      "default": [255, 200, 0]
+      "default": [
+        255,
+        200,
+        0
+      ]
     },
     "metric_color": {
       "type": "array",
       "title": "Metric Color",
       "description": "RGB color for metric values (alt, speed, etc.) in area and flight tracking modes.",
-      "items": { "type": "integer", "minimum": 0, "maximum": 255 },
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 255
+      },
       "minItems": 3,
       "maxItems": 3,
-      "default": [255, 255, 255]
+      "default": [
+        255,
+        255,
+        255
+      ]
     },
     "error_color": {
       "type": "array",
       "title": "Error Color",
       "description": "RGB color for error/no-data messages.",
-      "items": { "type": "integer", "minimum": 0, "maximum": 255 },
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 255
+      },
       "minItems": 3,
       "maxItems": 3,
-      "default": [255, 0, 0]
+      "default": [
+        255,
+        0,
+        0
+      ]
     },
     "show_banner": {
       "type": "boolean",
@@ -449,7 +470,7 @@
     "show_aircraft_icon": {
       "type": "boolean",
       "title": "Show Airline Logos",
-      "description": "Show airline logos in area mode (8×8 pixel sprites next to callsigns). Flight detail layouts always show logos in the logo zone when available (52 airlines included as PNG assets).",
+      "description": "Show airline logos in area mode (8\u00d78 pixel sprites next to callsigns). Flight detail layouts always show logos in the logo zone when available (52 airlines included as PNG assets).",
       "default": true
     },
     "scroll_speed": {
@@ -463,7 +484,7 @@
     "opensky_username": {
       "type": "string",
       "title": "OpenSky Username",
-      "description": "OpenSky Network username for higher rate limits (optional — works without for basic use).",
+      "description": "OpenSky Network username for higher rate limits (optional \u2014 works without for basic use).",
       "x-secret": true,
       "default": ""
     },
@@ -474,14 +495,158 @@
       "x-secret": true,
       "default": ""
     },
-    "flightaware_api_key": {
-      "type": "string",
-      "description": "FlightAware AeroAPI key (optional — all features work without it via free data sources). Get your API key at https://flightaware.com/aeroapi/",
-      "x-secret": true,
-      "default": ""
+    "flightaware": {
+      "type": "object",
+      "title": "FlightAware AeroAPI (Paid - Optional)",
+      "description": "FlightAware AeroAPI provides detailed flight plan data (origin, destination, aircraft type). Requires a paid API subscription. Most users can skip this section \u2014 FR24 enrichment provides similar data for free.",
+      "properties": {
+        "api_key": {
+          "type": "string",
+          "description": "FlightAware AeroAPI key (optional \u2014 all features work without it via free data sources). Get your API key at https://flightaware.com/aeroapi/",
+          "x-secret": true,
+          "default": ""
+        },
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable flight plan fetching from FlightAware API. Note: FR24 enrichment (fr24_enrichment) also provides origin/destination data for free without this setting.",
+          "default": false
+        },
+        "max_api_calls_per_hour": {
+          "type": "integer",
+          "description": "Maximum FlightAware API calls per hour",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 25
+        },
+        "daily_api_budget": {
+          "type": "integer",
+          "description": "Maximum FlightAware API calls per day",
+          "minimum": 1,
+          "maximum": 200,
+          "default": 60
+        },
+        "cache_ttl_hours": {
+          "type": "integer",
+          "description": "Flight plan cache time-to-live in hours",
+          "minimum": 1,
+          "maximum": 168,
+          "default": 12
+        },
+        "min_callsign_length": {
+          "type": "integer",
+          "description": "Minimum callsign length to fetch flight plan data",
+          "minimum": 3,
+          "maximum": 10,
+          "default": 4
+        },
+        "airline_callsign_prefixes": {
+          "type": "array",
+          "description": "List of airline callsign prefixes to prioritize for flight plan fetching",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "AAL",
+            "UAL",
+            "DAL",
+            "SWA",
+            "JBU",
+            "ASQ",
+            "ENY",
+            "FFT",
+            "NKS",
+            "F9",
+            "G4",
+            "B6",
+            "WN",
+            "AA",
+            "UA",
+            "DL"
+          ]
+        },
+        "background_service": {
+          "type": "object",
+          "description": "Background service configuration for fetching flight plan data without blocking the display",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable the background service for flight plan fetching",
+              "default": true
+            },
+            "fetch_interval_hours": {
+              "type": "integer",
+              "description": "Interval in hours between background fetch runs",
+              "minimum": 1,
+              "maximum": 168,
+              "default": 4
+            },
+            "max_calls_per_run": {
+              "type": "integer",
+              "description": "Maximum number of flight plan calls fetched per background run",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 10
+            }
+          },
+          "required": [
+            "enabled"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
     }
   },
-  "required": ["enabled"],
-  "additionalProperties": false
+  "required": [
+    "enabled"
+  ],
+  "additionalProperties": false,
+  "x-propertyOrder": [
+    "enabled",
+    "data_source",
+    "display_mode",
+    "display_duration",
+    "update_interval",
+    "live_priority",
+    "center_latitude",
+    "center_longitude",
+    "map_radius_miles",
+    "zoom_factor",
+    "skyaware_url",
+    "fr24_enrichment",
+    "fr24_enrichment_interval",
+    "opensky_username",
+    "opensky_password",
+    "enrichment_provider",
+    "route_cache_ttl",
+    "max_aircraft",
+    "min_altitude_ft",
+    "max_altitude_ft",
+    "aircraft_categories",
+    "anchor_airport",
+    "tracked_flights",
+    "units",
+    "altitude_unit",
+    "speed_unit",
+    "track_format",
+    "vr_unit",
+    "layout",
+    "widescreen_threshold",
+    "header_color",
+    "airport_color",
+    "metric_color",
+    "error_color",
+    "show_banner",
+    "show_aircraft_icon",
+    "scroll_speed",
+    "map_background",
+    "show_trails",
+    "trail_length",
+    "proximity_alert",
+    "flight_records",
+    "use_offline_database",
+    "offline_database_auto_update",
+    "offline_database_update_interval_days",
+    "flightaware"
+  ]
 }
-
