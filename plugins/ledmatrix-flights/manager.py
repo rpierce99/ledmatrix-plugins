@@ -257,6 +257,9 @@ class FlightTrackerPlugin(BasePlugin):
         self.tracked_flight_data: Dict[str, TrackedFlight] = {}
         self._area_page = 0
         self._area_last_page_change = 0.0
+        self._auto_mode_index = 0
+        self._auto_mode_last_change = 0.0
+        self._auto_rotate_interval = 10.0  # seconds per mode in auto rotation
         self._tracking_index = 0
         self._tracking_last_change = 0.0
         self._last_tracked_update = 0.0
@@ -2194,12 +2197,7 @@ class FlightTrackerPlugin(BasePlugin):
             self.display_mode, display_mode, mode, aircraft_count,
         )
         if mode == 'auto':
-            # Auto mode priority:
-            # 1. Tracked flight airborne → flight_tracking
-            # 2. Proximity alert → overhead
-            # 3. Anchor airport with matches → area
-            # 4. Aircraft in range → map
-            # 5. No aircraft → stats
+            # Priority interrupts — always show these immediately
             has_airborne_tracked = any(
                 tf.status == "AIRBORNE" for tf in self.tracked_flight_data.values()
             )
@@ -2207,12 +2205,23 @@ class FlightTrackerPlugin(BasePlugin):
                 mode = 'flight_tracking'
             elif self.proximity_enabled and closest and closest['distance_miles'] <= self.proximity_distance_miles:
                 mode = 'overhead'
-            elif self.anchor_airport and self._get_anchor_aircraft():
-                mode = 'area'
-            elif self.aircraft_data:
-                mode = 'map'
             else:
-                mode = 'stats'
+                # Rotate through available modes
+                auto_modes = []
+                if self.aircraft_data:
+                    auto_modes.append('map')
+                    auto_modes.append('area')
+                if self.all_aircraft_data or self.aircraft_data:
+                    auto_modes.append('stats')
+                if not auto_modes:
+                    auto_modes = ['stats']
+
+                now = time.time()
+                if now - self._auto_mode_last_change >= self._auto_rotate_interval:
+                    self._auto_mode_index = (self._auto_mode_index + 1) % len(auto_modes)
+                    self._auto_mode_last_change = now
+
+                mode = auto_modes[self._auto_mode_index % len(auto_modes)]
 
             self.logger.debug(
                 "[Flight Tracker] Auto mode selection: chosen_mode=%s (aircraft=%s)",
