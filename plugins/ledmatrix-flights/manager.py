@@ -512,7 +512,7 @@ class FlightTrackerPlugin(BasePlugin):
             'background_service': 'background_service',
         }
         for nested_key, flat_key in flat_map.items():
-            if nested_key in fa and flat_key not in config:
+            if nested_key in fa:
                 config[flat_key] = fa[nested_key]
 
     def _fa_config(self, key, default=None):
@@ -1014,9 +1014,15 @@ class FlightTrackerPlugin(BasePlugin):
         # Try SkyAware db endpoint first (lightweight HTTP lookups grouped by prefix)
         if self.data_source == 'skyaware' and self.skyaware_url:
             self._enrich_from_skyaware_db(needs_enrichment)
-            return
+            # Re-check what still needs enrichment after SkyAware DB
+            needs_enrichment = [
+                (icao, ac) for icao, ac in needs_enrichment
+                if not ac.get('aircraft_type') or ac['aircraft_type'] == 'Unknown'
+            ]
+            if not needs_enrichment:
+                return
 
-        # Fallback to offline FAA database
+        # Fallback to offline FAA database for remaining aircraft
         if not self.use_offline_db:
             return
         for icao, ac in needs_enrichment:
@@ -1363,9 +1369,14 @@ class FlightTrackerPlugin(BasePlugin):
             
             # Update aircraft data — all_aircraft_data for stats, aircraft_data for map/area
             self.all_aircraft_data[icao] = aircraft_info
+            if in_range:
+                self.aircraft_data[icao] = aircraft_info
+            elif icao in self.aircraft_data:
+                # Aircraft moved out of range — remove from map/area data
+                del self.aircraft_data[icao]
+                self.aircraft_trails.pop(icao, None)
             if not in_range:
                 continue
-            self.aircraft_data[icao] = aircraft_info
             
             # Update trail if enabled
             if self.show_trails:
@@ -2687,11 +2698,10 @@ class FlightTrackerPlugin(BasePlugin):
                     airline_icao = cs[:3].upper()
         else:
             ac_data = aircraft
-            # Get enrichment data
-            flight_plan = self._get_flight_plan_data(aircraft['callsign'], aircraft.get('icao'))
-            origin = flight_plan.get('origin', '')
-            destination = flight_plan.get('destination', '')
-            aircraft_type = flight_plan.get('aircraft_type', '')
+            # Read only pre-enriched fields — no I/O during rendering
+            origin = aircraft.get('origin', '')
+            destination = aircraft.get('destination', '')
+            aircraft_type = aircraft.get('aircraft_type', '')
             airline_icao = aircraft.get('airline_icao', '')
 
         self._renderer.render_stat_card(
