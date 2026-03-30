@@ -47,7 +47,10 @@ class FlightTrackerPlugin(BasePlugin):
         super().__init__(plugin_id, config, display_manager, cache_manager, plugin_manager)
         self.plugin_manager = plugin_manager
         
-        # Config is already flattened (no flight_tracker wrapper)
+        # Normalize FlightAware config: copy nested keys to flat so enrichment
+        # modules and legacy code paths both work
+        self._normalize_flightaware_config(self.config)
+
         # Flight tracker configuration
         self.enabled = self.config.get('enabled', False)
         self.update_interval = self.config.get('update_interval', 5)
@@ -484,6 +487,31 @@ class FlightTrackerPlugin(BasePlugin):
         font_height = self._get_font_height(font)
         return int(font_height * padding_factor)
     
+    @staticmethod
+    def _normalize_flightaware_config(config: Dict) -> None:
+        """Normalize FlightAware config: copy nested flightaware.* to flat keys.
+
+        This ensures enrichment modules and any code reading flat keys from
+        config works regardless of whether the user has the new nested schema
+        or the old flat schema.  Called once at init before any config reads.
+        """
+        fa = config.get('flightaware', {})
+        if not fa:
+            return
+        flat_map = {
+            'api_key': 'flightaware_api_key',
+            'enabled': 'flight_plan_enabled',
+            'max_api_calls_per_hour': 'max_api_calls_per_hour',
+            'daily_api_budget': 'daily_api_budget',
+            'cache_ttl_hours': 'flight_plan_cache_ttl_hours',
+            'min_callsign_length': 'min_callsign_length',
+            'airline_callsign_prefixes': 'airline_callsign_prefixes',
+            'background_service': 'background_service',
+        }
+        for nested_key, flat_key in flat_map.items():
+            if nested_key in fa and flat_key not in config:
+                config[flat_key] = fa[nested_key]
+
     def _fa_config(self, key, default=None):
         """Read FlightAware config from nested 'flightaware' object with flat fallback."""
         fa = self.config.get('flightaware', {})
@@ -561,7 +589,7 @@ class FlightTrackerPlugin(BasePlugin):
         
         # Emergency stop at 95% budget
         if budget_usage >= 0.95:
-            self.logger.error(f"[Flight Tracker] EMERGENCY STOP: 95% of budget reached. Disabling API calls.")
+            self.logger.error("[Flight Tracker] EMERGENCY STOP: 95% of budget reached. Disabling API calls.")
             self.daily_api_budget = 0  # Effectively disable further calls
     
     
@@ -1032,11 +1060,9 @@ class FlightTrackerPlugin(BasePlugin):
                         db_data = resp.json()
                         self._skyaware_db_cache[prefix] = db_data
                     else:
-                        self._skyaware_db_cache[prefix] = {}
-                        db_data = {}
+                        db_data = {}  # don't cache — allow retry next cycle
                 except Exception:
-                    self._skyaware_db_cache[prefix] = {}
-                    db_data = {}
+                    db_data = {}  # don't cache — allow retry next cycle
 
             for icao, ac in items:
                 suffix = icao[2:].upper()
@@ -1443,7 +1469,7 @@ class FlightTrackerPlugin(BasePlugin):
         
         if coord_key not in self.bounds_warning_cache or \
            current_time - self.bounds_warning_cache[coord_key] > self.bounds_warning_interval:
-            self.logger.debug(f"[Flight Tracker] Coordinate ({lat}, {lon}) -> pixel ({x}, {y}) is outside display bounds {self.display_width}x{self.display_height}")
+            self.logger.debug(f"[Flight Tracker] Coordinate ({lat}, {lon}) -> pixel ({x_pixel}, {y_pixel}) is outside display bounds {self.display_width}x{self.display_height}")
             self.bounds_warning_cache[coord_key] = current_time
         
         return None
@@ -1544,7 +1570,7 @@ class FlightTrackerPlugin(BasePlugin):
         
         for i, url in enumerate(urls):
             try:
-                self.logger.info(f"[Flight Tracker] Fetching tile {x},{y} at zoom {zoom} from: {url}")
+                self.logger.debug(f"[Flight Tracker] Fetching tile {x},{y} at zoom {zoom} from: {url}")
                 
                 response = requests.get(url, timeout=10)
                 response.raise_for_status()
@@ -1591,7 +1617,7 @@ class FlightTrackerPlugin(BasePlugin):
                             # If more than 80% of pixels are the same color, it's likely an error page
                             max_count = max(color_counts.values())
                             if max_count > len(pixels[::100]) * 0.8:
-                                self.logger.debug(f"[Flight Tracker] Tile appears to be solid color (error page)")
+                                self.logger.debug("[Flight Tracker] Tile appears to be solid color (error page)")
                                 continue
                     
                 except Exception as e:
@@ -1676,13 +1702,13 @@ class FlightTrackerPlugin(BasePlugin):
         tiles_x = min(max_tiles, max(2, base_tiles_x + 2))  # Add 2 for buffer
         tiles_y = min(max_tiles, max(2, base_tiles_y + 2))  # Add 2 for buffer
         
-        self.logger.info(f"[Flight Tracker] Tile calculation: base=({base_tiles_x}x{base_tiles_y}), final=({tiles_x}x{tiles_y}), total={tiles_x * tiles_y}")
+        self.logger.debug(f"[Flight Tracker] Tile calculation: base=({base_tiles_x}x{base_tiles_y}), final=({tiles_x}x{tiles_y}), total={tiles_x * tiles_y}")
         
         # Log tile server being used
         if self.custom_tile_server:
-            self.logger.info(f"[Flight Tracker] Using custom tile server: {self.custom_tile_server}")
+            self.logger.debug(f"[Flight Tracker] Using custom tile server: {self.custom_tile_server}")
         else:
-            self.logger.info(f"[Flight Tracker] Using tile provider: {self.tile_provider}")
+            self.logger.debug(f"[Flight Tracker] Using tile provider: {self.tile_provider}")
         
         # Calculate tile bounds
         start_x = center_x - tiles_x // 2
@@ -1733,7 +1759,7 @@ class FlightTrackerPlugin(BasePlugin):
                 self.map_bg_enabled = False
                 return None
         else:
-            self.logger.info(f"[Flight Tracker] All tiles fetched successfully")
+            self.logger.debug("[Flight Tracker] All tiles fetched successfully")
         
         # Calculate what geographic area the tiles natively show at this zoom level
         world_pixels_at_zoom = self.tile_size * (2 ** zoom)
@@ -1820,11 +1846,11 @@ class FlightTrackerPlugin(BasePlugin):
         desired_miles_high = crop_height_needed / pixels_per_mile_at_zoom
         
         # Log the final map configuration
-        self.logger.info(f"[Flight Tracker] Generated map background with {tiles_fetched} tiles at zoom {zoom}")
+        self.logger.debug(f"[Flight Tracker] Generated map background with {tiles_fetched} tiles at zoom {zoom}")
         self.logger.info(f"[Flight Tracker] Center: ({center_lat:.4f}, {center_lon:.4f}), Radius: {self.map_radius_miles}mi, Effective: {effective_radius:.2f}mi (zoom_factor: {self.zoom_factor})")
-        self.logger.info(f"[Flight Tracker] Tile coverage: {tiles_x}x{tiles_y}, Crop: ({crop_left},{crop_top})-({crop_right},{crop_bottom})")
-        self.logger.info(f"[Flight Tracker] Map displays {desired_miles_wide:.1f} miles wide x {desired_miles_high:.1f} miles high (no stretching)")
-        self.logger.info(f"[Flight Tracker] Native tile scale: {pixels_per_mile_at_zoom:.3f} pixels/mile, cropped {crop_width_needed}x{crop_height_needed} pixels, scaled to {self.display_width}x{self.display_height}")
+        self.logger.debug(f"[Flight Tracker] Tile coverage: {tiles_x}x{tiles_y}, Crop: ({crop_left},{crop_top})-({crop_right},{crop_bottom})")
+        self.logger.debug(f"[Flight Tracker] Map displays {desired_miles_wide:.1f} miles wide x {desired_miles_high:.1f} miles high (no stretching)")
+        self.logger.debug(f"[Flight Tracker] Native tile scale: {pixels_per_mile_at_zoom:.3f} pixels/mile, cropped {crop_width_needed}x{crop_height_needed} pixels, scaled to {self.display_width}x{self.display_height}")
         
         # Debug: Save composite image to see what's happening
         try:

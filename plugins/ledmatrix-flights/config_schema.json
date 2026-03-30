@@ -595,6 +595,72 @@
         }
       },
       "additionalProperties": false
+    },
+    "flightaware_api_key": {
+      "type": "string",
+      "title": "FlightAware API Key (deprecated - use FlightAware section)",
+      "description": "Deprecated: moved to FlightAware section. Kept for backward compatibility.",
+      "default": "",
+      "x-secret": true
+    },
+    "flight_plan_enabled": {
+      "type": "boolean",
+      "title": "Enable Flight Plans (deprecated - use FlightAware section)",
+      "description": "Deprecated: moved to FlightAware section.",
+      "default": false
+    },
+    "max_api_calls_per_hour": {
+      "type": "integer",
+      "title": "Max API Calls/Hour (deprecated)",
+      "description": "Deprecated: moved to FlightAware section.",
+      "default": 25
+    },
+    "daily_api_budget": {
+      "type": "integer",
+      "title": "Daily API Budget (deprecated)",
+      "description": "Deprecated: moved to FlightAware section.",
+      "default": 60
+    },
+    "flight_plan_cache_ttl_hours": {
+      "type": "integer",
+      "title": "Cache TTL Hours (deprecated)",
+      "description": "Deprecated: moved to FlightAware section.",
+      "default": 12
+    },
+    "min_callsign_length": {
+      "type": "integer",
+      "title": "Min Callsign Length (deprecated)",
+      "description": "Deprecated: moved to FlightAware section.",
+      "default": 4
+    },
+    "airline_callsign_prefixes": {
+      "type": "array",
+      "title": "Airline Prefixes (deprecated)",
+      "description": "Deprecated: moved to FlightAware section.",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "background_service": {
+      "type": "object",
+      "title": "Background Service (deprecated)",
+      "description": "Deprecated: moved to FlightAware section.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "fetch_interval_hours": {
+          "type": "integer",
+          "default": 4
+        },
+        "max_calls_per_run": {
+          "type": "integer",
+          "default": 10
+        }
+      },
+      "additionalProperties": false
     }
   },
   "required": [
