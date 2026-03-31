@@ -52,6 +52,16 @@ class WeatherIcons:
         "tornado": "tornado.png",
         "hurricane": "hurricane.png",
         "wind": "wind.png", # Generic wind if code is not specific enough
+
+        # Moon phase icons (used by almanac display)
+        "moon-new": "moon-new.png",
+        "moon-waxing-crescent": "moon-waxing-crescent.png",
+        "moon-first-quarter": "moon-first-quarter.png",
+        "moon-waxing-gibbous": "moon-waxing-gibbous.png",
+        "moon-full": "moon-full.png",
+        "moon-waning-gibbous": "moon-waning-gibbous.png",
+        "moon-last-quarter": "moon-last-quarter.png",
+        "moon-waning-crescent": "moon-waning-crescent.png",
     }
 
     @classmethod
