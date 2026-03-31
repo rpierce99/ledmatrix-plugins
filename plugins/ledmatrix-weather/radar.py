@@ -308,15 +308,17 @@ class RadarFetcher:
 
         self._last_fetch = time.time()
 
+    def needs_refresh(self, interval: int = 300) -> bool:
+        """Return True when radar data is stale and should be refreshed."""
+        return time.time() - self._last_fetch >= interval
+
     def get_radar_image(self, width: int, height: int) -> Optional[Image.Image]:
         """Get current radar frame composited over vector map.
 
-        Auto-advances frames for animation and auto-refreshes every 5 minutes.
+        Only composites cached frames — call refresh_data() separately
+        (e.g. from the plugin's update() method) to fetch new tiles.
         """
         now = time.time()
-
-        if now - self._last_fetch >= 300:
-            self.refresh_data(width, height)
 
         if self._map_bg is None:
             self._map_bg = self._render_map(width, height)
