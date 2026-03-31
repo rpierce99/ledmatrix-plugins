@@ -203,6 +203,7 @@ class SoccerScoreboardPlugin(BasePlugin if BasePlugin else object):
 
         # Load and initialize custom leagues from config
         self._load_custom_leagues()
+        self._build_custom_league_map()
 
         # Initialize league registry after managers are created
         # This centralizes league management and makes it easy to add more leagues
@@ -434,17 +435,21 @@ class SoccerScoreboardPlugin(BasePlugin if BasePlugin else object):
 
         return manager_config
 
+    def _build_custom_league_map(self) -> None:
+        """Build O(1) lookup map from custom_leagues config, keyed by league_code."""
+        self._custom_league_map: Dict[str, Dict] = {
+            cl['league_code']: cl
+            for cl in self.config.get('custom_leagues', [])
+            if cl.get('league_code')
+        }
+
     def _get_league_config(self, league_key: str, league_data: Optional[Dict] = None) -> Dict:
         """Get the config dict for a league, handling both predefined and custom leagues."""
         if league_data is None:
             league_data = self._league_registry.get(league_key, {})
 
         if league_data.get('is_custom', False):
-            custom_leagues = self.config.get('custom_leagues', [])
-            return next(
-                (cl for cl in custom_leagues if cl.get('league_code') == league_key),
-                {}
-            )
+            return self._custom_league_map.get(league_key, {})
         else:
             leagues_config = self.config.get('leagues', {})
             return leagues_config.get(league_key, {})
@@ -1204,6 +1209,7 @@ class SoccerScoreboardPlugin(BasePlugin if BasePlugin else object):
             # Reinitialize managers and modes
             self._initialize_managers()
             self._load_custom_leagues()
+            self._build_custom_league_map()
             self._initialize_league_registry()
             self._display_mode_settings = self._parse_display_mode_settings()
             self.modes = self._get_available_modes()
@@ -1781,7 +1787,7 @@ class SoccerScoreboardPlugin(BasePlugin if BasePlugin else object):
             info = {
                 "plugin_id": self.plugin_id,
                 "name": "Soccer Scoreboard",
-                "version": "1.4.0",
+                "version": "1.6.0",
                 "enabled": self.is_enabled,
                 "display_size": f"{self.display_width}x{self.display_height}",
                 "leagues": league_info,
