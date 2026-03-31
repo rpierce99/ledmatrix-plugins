@@ -289,22 +289,31 @@ class RadarFetcher:
         # Fetch radar frames
         path_data = self._fetch_radar_paths()
         if not path_data:
+            logger.error("[Radar] No radar paths returned from RainViewer API (%s)", _MAPS_URL)
+            self._last_fetch = time.time()
             return
 
         frames_to_fetch = path_data[-12:]
         new_frames = []
         new_timestamps = []
+        failed = 0
         for path, ts in frames_to_fetch:
             tile = self._fetch_radar_tile(path)
             if tile:
                 new_frames.append(tile)
                 new_timestamps.append(ts)
+            else:
+                failed += 1
 
         if new_frames:
             self._radar_frames = new_frames
             self._frame_timestamps = new_timestamps
             self._frame_index = 0
             logger.info(f"[Radar] Loaded {len(new_frames)} radar frames")
+            if failed:
+                logger.warning(f"[Radar] {failed}/{len(frames_to_fetch)} tile(s) failed to load")
+        else:
+            logger.error(f"[Radar] All {len(frames_to_fetch)} radar tile(s) failed to load")
 
         self._last_fetch = time.time()
 
