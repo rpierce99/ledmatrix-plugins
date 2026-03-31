@@ -27,6 +27,7 @@ LEAGUE_NAMES = {
     'ita.1': 'Serie A',
     'fra.1': 'Ligue 1',
     'usa.1': 'MLS',
+    'por.1': 'Liga Portugal',
     'uefa.champions': 'Champions League',
     'uefa.europa': 'Europa League'
 }
