@@ -20,6 +20,19 @@
       "type": "object",
       "description": "Display and scrolling settings",
       "properties": {
+        "display_mode": {
+          "type": "string",
+          "enum": ["scroll", "switch"],
+          "default": "scroll",
+          "description": "Display mode: 'scroll' shows all tickers in a continuous horizontal scroll, 'switch' shows one ticker at a time rotating on a timer"
+        },
+        "switch_duration": {
+          "type": "number",
+          "minimum": 5,
+          "maximum": 120,
+          "default": 15,
+          "description": "Seconds to display each stock/crypto before switching to the next (only used in switch mode)"
+        },
         "scroll_speed": {
           "type": "number",
           "description": "Scrolling speed in pixels per frame",

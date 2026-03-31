@@ -59,6 +59,11 @@ class StockTickerPlugin(BasePlugin):
         self.current_stock_index = 0
         self.scroll_complete = False
         self._has_scrolled = False
+
+        # Switch mode state
+        self.last_stock_switch = 0
+        self._switch_cycle_started = False
+        self._switch_stocks_shown = 0
         
         # Expose enable_scrolling for display controller FPS detection
         self.enable_scrolling = self.config_manager.enable_scrolling
@@ -113,7 +118,7 @@ class StockTickerPlugin(BasePlugin):
             self._show_error_state()
             return
         
-        if self.config_manager.enable_scrolling:
+        if self.config_manager.display_mode == "scroll":
             self._display_scrolling(force_clear)
         else:
             self._display_static(force_clear)
@@ -154,29 +159,39 @@ class StockTickerPlugin(BasePlugin):
             self.scroll_complete = True
     
     def _display_static(self, force_clear: bool = False) -> None:
-        """Display stocks in static mode - one at a time without scrolling."""
-        # Signal not scrolling
+        """Display stocks in switch mode - one at a time, rotating on a timer."""
         self.display_manager.set_scrolling_state(False)
-        
-        # Get current stock
+
         symbols = list(self.stock_data.keys())
         if not symbols:
             self._show_error_state()
             return
-        
+
+        current_time = time.time()
+
+        # Initialize switch timer on first call
+        if self.last_stock_switch == 0:
+            self.last_stock_switch = current_time
+
+        # Rotate to next stock if switch_duration has elapsed
+        if (len(symbols) > 1
+                and current_time - self.last_stock_switch >= self.config_manager.switch_duration):
+            self.current_stock_index = (self.current_stock_index + 1) % len(symbols)
+            self.last_stock_switch = current_time
+            self._switch_stocks_shown += 1
+            force_clear = True
+
+        # Mark cycle as started after first display
+        if not self._switch_cycle_started:
+            self._switch_cycle_started = True
+            self._switch_stocks_shown = 1  # Count the first stock
+
         current_symbol = symbols[self.current_stock_index % len(symbols)]
         current_data = self.stock_data[current_symbol]
-        
-        # Create static display
+
         static_image = self.display_renderer.create_static_display(current_symbol, current_data)
-        
-        # Update display - paste overwrites previous content (no need to clear)
         self.display_manager.image.paste(static_image, (0, 0))
         self.display_manager.update_display()
-        
-        # Move to next stock after a delay
-        time.sleep(2)  # Show each stock for 2 seconds
-        self.current_stock_index += 1
     
     def _create_scrolling_display(self):
         """Create the wide scrolling image with all stocks."""
@@ -226,9 +241,15 @@ class StockTickerPlugin(BasePlugin):
         """
         # display_mode is unused but kept for API consistency with other plugins
         _ = display_mode
+
+        # Switch mode: total duration = num_symbols * switch_duration
+        if self.config_manager.display_mode == "switch":
+            num_symbols = len(self.stock_data) if self.stock_data else 1
+            return float(num_symbols * self.config_manager.switch_duration)
+
         if not self.config_manager.dynamic_duration:
             return None
-        
+
         # Check if we have a cached image with calculated duration
         if self.scroll_helper and self.scroll_helper.cached_image:
             try:
@@ -272,21 +293,28 @@ class StockTickerPlugin(BasePlugin):
     def supports_dynamic_duration(self) -> bool:
         """
         Determine whether this plugin should use dynamic display durations.
-        
-        Returns True if dynamic_duration is enabled in the display config.
+
+        Returns True for switch mode (always knows cycle length) or if
+        dynamic_duration is enabled in the display config for scroll mode.
         """
+        if self.config_manager.display_mode == "switch":
+            return True
         return bool(self.config_manager.dynamic_duration)
     
     def get_dynamic_duration_cap(self) -> Optional[float]:
         """
         Return the maximum duration (in seconds) the controller should wait for
         this plugin to complete its display cycle when using dynamic duration.
-        
+
         Returns the max_duration from config, or None if not set.
         """
+        if self.config_manager.display_mode == "switch":
+            num_symbols = len(self.stock_data) if self.stock_data else 1
+            return float(num_symbols * self.config_manager.switch_duration)
+
         if not self.config_manager.dynamic_duration:
             return None
-        
+
         max_duration = self.config_manager.max_duration
         if max_duration and max_duration > 0:
             return float(max_duration)
@@ -298,17 +326,17 @@ class StockTickerPlugin(BasePlugin):
         
         For scrolling content, this checks if the scroll has completed one full cycle.
         """
+        # Switch mode: complete after showing all stocks once
+        if self.config_manager.display_mode == "switch":
+            if not self.stock_data:
+                return True
+            return (self._switch_cycle_started
+                    and self._switch_stocks_shown >= len(self.stock_data))
+
         if not self.config_manager.dynamic_duration:
             # If dynamic duration is disabled, always report complete
             return True
-        
-        if not self.config_manager.enable_scrolling:
-            # For static mode, cycle is complete after showing all stocks once
-            if not self.stock_data:
-                return True
-            symbols = list(self.stock_data.keys())
-            return self.current_stock_index >= len(symbols)
-        
+
         # For scrolling mode, check if scroll has completed
         if hasattr(self.scroll_helper, 'is_scroll_complete'):
             return self.scroll_helper.is_scroll_complete()
@@ -327,6 +355,9 @@ class StockTickerPlugin(BasePlugin):
         self.scroll_complete = False
         self.current_stock_index = 0
         self._has_scrolled = False
+        self.last_stock_switch = 0
+        self._switch_cycle_started = False
+        self._switch_stocks_shown = 0
         if hasattr(self.scroll_helper, 'reset_scroll'):
             self.scroll_helper.reset_scroll()
     
@@ -356,10 +387,15 @@ class StockTickerPlugin(BasePlugin):
         pixels_per_second = self.config_manager.scroll_speed / delay if delay > 0 else self.config_manager.scroll_speed * 100
         self.scroll_helper.set_scroll_speed(pixels_per_second)
     
+    def set_display_mode(self, mode: str) -> None:
+        """Set display mode ('scroll' or 'switch')."""
+        self.config_manager.set_display_mode(mode)
+        self.enable_scrolling = self.config_manager.enable_scrolling
+        self.reset_cycle_state()
+
     def set_enable_scrolling(self, enabled: bool) -> None:
-        """Set whether scrolling is enabled."""
-        self.config_manager.set_enable_scrolling(enabled)
-        self.enable_scrolling = enabled  # Keep in sync
+        """Set whether scrolling is enabled (legacy, maps to display_mode)."""
+        self.set_display_mode("scroll" if enabled else "switch")
     
     def validate_config(self) -> bool:
         """Validate plugin configuration."""

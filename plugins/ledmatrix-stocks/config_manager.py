@@ -31,6 +31,9 @@ class StockConfigManager:
         # Basic settings
         self.enabled = True
         self.display_duration = 30
+        # Display mode: "scroll" or "switch"
+        self.display_mode = "scroll"
+        self.switch_duration = 15  # Seconds per stock in switch mode
         # Scroll speed in pixels per frame (matching old manager)
         self.scroll_speed = 1.0  # Pixels per frame (default 1)
         self.scroll_delay = 0.02  # Seconds between frames (default 0.02)
@@ -103,7 +106,19 @@ class StockConfigManager:
             
             # Clamp scroll_speed to valid range (0.5-5.0) per schema
             self.scroll_speed = max(0.5, min(5.0, self.scroll_speed))
-            self.enable_scrolling = self.plugin_config.get('enable_scrolling', True)
+
+            # Display mode: new format (display.display_mode) or legacy (enable_scrolling)
+            self.display_mode = display_config.get('display_mode', 'scroll')
+            self.switch_duration = display_config.get('switch_duration', 15)
+
+            # Backward compat: if legacy enable_scrolling=False and no explicit display_mode
+            if 'display_mode' not in display_config:
+                legacy_scrolling = self.plugin_config.get('enable_scrolling', True)
+                if not legacy_scrolling:
+                    self.display_mode = "switch"
+
+            # Derive enable_scrolling from display_mode for framework FPS detection
+            self.enable_scrolling = (self.display_mode == "scroll")
             
             # Stock configuration (nested under 'stocks' object)
             # Support both new format (stocks.symbols) and old format (top-level symbols)
@@ -188,6 +203,8 @@ class StockConfigManager:
         """Set default configuration values."""
         self.enabled = True
         self.display_duration = 30
+        self.display_mode = "scroll"
+        self.switch_duration = 15
         self.scroll_speed = 1.0  # Pixels per frame
         self.scroll_delay = 0.02
         self.enable_scrolling = True
@@ -252,17 +269,26 @@ class StockConfigManager:
         self.scroll_delay = max(0.001, min(1.0, delay))
         self.logger.debug("Scroll delay set to: %.3f", self.scroll_delay)
     
+    def set_display_mode(self, mode: str) -> None:
+        """Set the display mode ('scroll' or 'switch')."""
+        if mode not in ("scroll", "switch"):
+            self.logger.warning("Invalid display mode '%s', ignoring", mode)
+            return
+        self.display_mode = mode
+        self.enable_scrolling = (mode == "scroll")
+        self.logger.debug("Display mode set to: %s", mode)
+
     def set_enable_scrolling(self, enabled: bool) -> None:
-        """Set whether scrolling is enabled."""
-        self.enable_scrolling = enabled
-        self.logger.debug("Scrolling enabled: %s", enabled)
+        """Set whether scrolling is enabled (legacy, maps to display_mode)."""
+        self.set_display_mode("scroll" if enabled else "switch")
     
     def get_plugin_info(self) -> Dict[str, Any]:
         """Get plugin information for display."""
         return {
             'name': 'Stock Ticker Plugin',
-            'version': '2.0.0',
+            'version': '2.2.0',
             'enabled': self.enabled,
+            'display_mode': self.display_mode,
             'scrolling': self.enable_scrolling,
             'chart_enabled': self.toggle_chart,
             'stocks_enabled': self.stocks_enabled,
