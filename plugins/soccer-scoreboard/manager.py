@@ -62,6 +62,7 @@ from soccer_managers import (
     create_mls_managers,
     create_champions_league_managers,
     create_europa_league_managers,
+    create_liga_portugal_managers,
     create_custom_league_managers,
 )
 
@@ -69,7 +70,7 @@ logger = logging.getLogger(__name__)
 
 # Predefined league keys and display names (priority 1-8)
 # Custom leagues will be added dynamically with user-defined priorities
-PREDEFINED_LEAGUE_KEYS = ['eng.1', 'esp.1', 'ger.1', 'ita.1', 'fra.1', 'usa.1', 'uefa.champions', 'uefa.europa']
+PREDEFINED_LEAGUE_KEYS = ['eng.1', 'esp.1', 'ger.1', 'ita.1', 'fra.1', 'usa.1', 'por.1', 'uefa.champions', 'uefa.europa']
 PREDEFINED_LEAGUE_NAMES = {
     'eng.1': 'Premier League',
     'esp.1': 'La Liga',
@@ -77,6 +78,7 @@ PREDEFINED_LEAGUE_NAMES = {
     'ita.1': 'Serie A',
     'fra.1': 'Ligue 1',
     'usa.1': 'MLS',
+    'por.1': 'Liga Portugal',
     'uefa.champions': 'Champions League',
     'uefa.europa': 'Europa League'
 }
@@ -89,8 +91,9 @@ PREDEFINED_LEAGUE_PRIORITIES = {
     'ita.1': 4,
     'fra.1': 5,
     'usa.1': 6,
-    'uefa.champions': 7,
-    'uefa.europa': 8,
+    'por.1': 7,
+    'uefa.champions': 8,
+    'uefa.europa': 9,
 }
 
 # League key -> (live_attr, recent_attr, upcoming_attr) for predefined leagues
@@ -101,6 +104,7 @@ PREDEFINED_LEAGUE_ATTR_MAP = {
     'ita.1': ('ita1_live', 'ita1_recent', 'ita1_upcoming'),
     'fra.1': ('fra1_live', 'fra1_recent', 'fra1_upcoming'),
     'usa.1': ('usa1_live', 'usa1_recent', 'usa1_upcoming'),
+    'por.1': ('por1_live', 'por1_recent', 'por1_upcoming'),
     'uefa.champions': ('champions_live', 'champions_recent', 'champions_upcoming'),
     'uefa.europa': ('europa_live', 'europa_recent', 'europa_upcoming'),
 }
@@ -325,6 +329,10 @@ class SoccerScoreboardPlugin(BasePlugin if BasePlugin else object):
                     )
                 elif league_key == 'usa.1':
                     self.usa1_live, self.usa1_recent, self.usa1_upcoming = create_mls_managers(
+                        league_config, self.display_manager, self.cache_manager
+                    )
+                elif league_key == 'por.1':
+                    self.por1_live, self.por1_recent, self.por1_upcoming = create_liga_portugal_managers(
                         league_config, self.display_manager, self.cache_manager
                     )
                 elif league_key == 'uefa.champions':

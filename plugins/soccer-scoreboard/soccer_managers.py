@@ -378,6 +378,15 @@ def create_mls_managers(config, display_manager, cache_manager):
     )
 
 
+def create_liga_portugal_managers(config, display_manager, cache_manager):
+    """Create Liga Portugal (por.1) managers."""
+    return (
+        SoccerLiveManager(config, display_manager, cache_manager, 'por.1'),
+        SoccerRecentManager(config, display_manager, cache_manager, 'por.1'),
+        SoccerUpcomingManager(config, display_manager, cache_manager, 'por.1'),
+    )
+
+
 def create_champions_league_managers(config, display_manager, cache_manager):
     """Create Champions League (uefa.champions) managers."""
     return (
