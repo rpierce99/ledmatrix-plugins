@@ -209,28 +209,45 @@ class MastersRendererEnhanced(MastersRenderer):
         self._text_shadow(draw, ((left_w - hw) // 2, 2), hole_text,
                           self.font_header, COLORS["white"])
 
-        # Hole name (wrapped if needed)
+        # Hole name — width-aware wrapping
         name_text = hole_info["name"]
         name_y = 12 if self.tier == "tiny" else 14
+        line_h = self._text_height(draw, "A", self.font_detail) + 1
+        max_text_w = left_w - 4
+
+        name_lines = []
         nw = self._text_width(draw, name_text, self.font_detail)
-        if nw > left_w - 4:
-            # Split name into words and wrap
-            words = name_text.split()
-            line1 = words[0] if words else name_text
-            line2 = " ".join(words[1:]) if len(words) > 1 else ""
-            l1w = self._text_width(draw, line1, self.font_detail)
-            draw.text(((left_w - l1w) // 2, name_y), line1,
-                      fill=COLORS["masters_yellow"], font=self.font_detail)
-            if line2:
-                l2w = self._text_width(draw, line2, self.font_detail)
-                draw.text(((left_w - l2w) // 2, name_y + 8), line2,
-                          fill=COLORS["masters_yellow"], font=self.font_detail)
+        if nw <= max_text_w:
+            name_lines = [name_text]
         else:
-            draw.text(((left_w - nw) // 2, name_y), name_text,
+            words = name_text.split()
+            current = ""
+            for word in words:
+                test = f"{current} {word}".strip() if current else word
+                if self._text_width(draw, test, self.font_detail) <= max_text_w:
+                    current = test
+                else:
+                    if current:
+                        name_lines.append(current)
+                    current = word
+            if current:
+                # Truncate last line with ellipsis if too wide
+                if self._text_width(draw, current, self.font_detail) > max_text_w:
+                    while len(current) > 1 and self._text_width(draw, current + "..", self.font_detail) > max_text_w:
+                        current = current[:-1]
+                    current = current + ".."
+                name_lines.append(current)
+
+        for i, line in enumerate(name_lines):
+            lw = self._text_width(draw, line, self.font_detail)
+            draw.text(((left_w - lw) // 2, name_y + i * line_h), line,
                       fill=COLORS["masters_yellow"], font=self.font_detail)
 
-        # Par and yardage
-        par_y = self.height - 20
+        # Par and yardage — anchored to bottom, above name block
+        name_block_bottom = name_y + len(name_lines) * line_h
+        par_yard_h = line_h * 2 + 2  # two lines plus padding
+        par_y = max(name_block_bottom + 2, self.height - par_yard_h - 2)
+
         par_text = f"Par {hole_info['par']}"
         pw = self._text_width(draw, par_text, self.font_detail)
         draw.text(((left_w - pw) // 2, par_y), par_text,
@@ -238,7 +255,7 @@ class MastersRendererEnhanced(MastersRenderer):
 
         yard_text = f"{hole_info['yardage']}y"
         yw = self._text_width(draw, yard_text, self.font_detail)
-        draw.text(((left_w - yw) // 2, par_y + 9), yard_text,
+        draw.text(((left_w - yw) // 2, par_y + line_h), yard_text,
                   fill=COLORS["light_gray"], font=self.font_detail)
 
         # ── Right side: hole layout image using full height ──

@@ -112,7 +112,7 @@ class MastersTournamentPlugin(BasePlugin):
         self._fact_scroll = 0
 
         # Internal timers for modes that rotate content within a display cycle
-        self._last_hole_switch = 0
+        self._last_hole_advance = {}  # per-mode hole timers
         self._hole_switch_interval = config.get("hole_display_duration", 15)
         self._last_fact_advance = 0
         self._fact_advance_interval = 2  # seconds between scroll steps
@@ -404,9 +404,12 @@ class MastersTournamentPlugin(BasePlugin):
 
     def _display_course_tour(self, force_clear: bool) -> bool:
         now = time.time()
-        if now - self._last_hole_switch >= self._hole_switch_interval:
+        last = self._last_hole_advance.get("course_tour", 0)
+        if last > 0 and now - last >= self._hole_switch_interval:
             self._current_hole = (self._current_hole % 18) + 1
-            self._last_hole_switch = now
+            self._last_hole_advance["course_tour"] = now
+        elif last == 0:
+            self._last_hole_advance["course_tour"] = now
         return self._show_image(self.renderer.render_hole_card(self._current_hole))
 
     def _display_amen_corner(self, force_clear: bool) -> bool:
@@ -423,9 +426,12 @@ class MastersTournamentPlugin(BasePlugin):
     def _display_featured_holes(self, force_clear: bool) -> bool:
         featured = [12, 13, 15, 16]
         now = time.time()
-        if now - self._last_hole_switch >= self._hole_switch_interval:
+        last = self._last_hole_advance.get("featured", 0)
+        if last > 0 and now - last >= self._hole_switch_interval:
             self._featured_hole_index += 1
-            self._last_hole_switch = now
+            self._last_hole_advance["featured"] = now
+        elif last == 0:
+            self._last_hole_advance["featured"] = now
         hole = featured[self._featured_hole_index % len(featured)]
         return self._show_image(self.renderer.render_hole_card(hole))
 
@@ -540,6 +546,10 @@ class MastersTournamentPlugin(BasePlugin):
         super().on_config_change(new_config)
         self._update_interval = new_config.get("update_interval", 30)
         self.display_duration = new_config.get("display_duration", 20)
+        self._hole_switch_interval = new_config.get("hole_display_duration", 15)
+        self._page_interval = new_config.get("page_display_duration", 15)
+        self._last_hole_advance.clear()
+        self._last_page_advance.clear()
         self.modes = self._build_enabled_modes()
         self._last_update = 0
 
