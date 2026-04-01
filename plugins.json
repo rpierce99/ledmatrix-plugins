@@ -673,6 +673,30 @@
       "latest_version": "1.4.8"
     },
     {
+      "id": "masters-tournament",
+      "name": "Masters Tournament",
+      "description": "Masters Tournament display with ESPN leaderboards, Augusta National hole layouts, fun facts, past champions, course tour, countdown, and more",
+      "author": "ChuckBuilds",
+      "category": "sports",
+      "tags": [
+        "sports",
+        "golf",
+        "tournament",
+        "leaderboard",
+        "masters",
+        "augusta"
+      ],
+      "repo": "https://github.com/ChuckBuilds/ledmatrix-plugins",
+      "branch": "main",
+      "plugin_path": "plugins/masters-tournament",
+      "stars": 0,
+      "downloads": 0,
+      "last_updated": "2026-04-01",
+      "verified": true,
+      "screenshot": "",
+      "latest_version": "2.0.0"
+    },
+    {
       "id": "web-ui-info",
       "name": "Web UI Info",
       "description": "Displays the web UI URL for easy access. Shows 'visit web ui at http://[deviceID]:5000'",
