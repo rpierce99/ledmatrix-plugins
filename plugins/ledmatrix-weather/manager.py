@@ -1106,8 +1106,10 @@ class WeatherPlugin(BasePlugin):
             img = Image.new('RGB', (width, height), (0, 0, 0))
             draw = ImageDraw.Draw(img)
 
-            font = self.display_manager.extra_small_font
-            font_h = 7
+            font = self.display_manager.small_font          # 8px - main text
+            font_sm = self.display_manager.extra_small_font  # 6px - secondary
+            font_h = 9   # line height for small_font
+            font_sm_h = 7  # line height for extra_small_font
             tz_offset = self.weather_data.get('timezone_offset', 0) if self.weather_data else 0
             sun = self.weather_data.get('sun', {}) if self.weather_data else {}
             moon = self.weather_data.get('moon', {}) if self.weather_data else {}
@@ -1130,13 +1132,12 @@ class WeatherPlugin(BasePlugin):
                 diff = sunset_ts - sunrise_ts
                 dh = int(diff // 3600)
                 dm = int((diff % 3600) // 60)
-                day_len = f"{dh}h {dm}m"
+                day_len = f"{dh}h{dm}m"
 
-            # Moon phase icon (left side)
+            # Moon phase icon (left side) — use most of the height
             moon_icon_code = self._get_moon_icon_code(moon_phase)
-            icon_size = max(14, min(height - 4, 40))
+            icon_size = height - 6
 
-            # Try to load moon icon
             try:
                 moon_icon = WeatherIcons.load_weather_icon(moon_icon_code, icon_size)
                 if moon_icon:
@@ -1145,36 +1146,35 @@ class WeatherPlugin(BasePlugin):
             except Exception:
                 pass
 
-            # Text on the right side
-            text_x = icon_size + 6
-            y = max(1, (height - font_h * 4 - 4) // 2)
+            # Text area starts after the icon
+            text_x = icon_size + 8
+            text_w = width - text_x - 2
 
-            # Row 1: Sunrise / Sunset
-            draw.text((text_x, y), f"Rise {sunrise}", font=font, fill=(255, 200, 0))
-            set_text = f"Set {sunset}"
-            set_w = draw.textlength(set_text, font=font)
-            draw.text((width - set_w - 2, y), set_text, font=font, fill=(255, 120, 50))
-            y += font_h + 1
-
-            # Row 2: Moonrise / Moonset
-            draw.text((text_x, y), f"MR {moonrise}", font=font, fill=(180, 180, 220))
-            ms_text = f"MS {moonset}"
-            ms_w = draw.textlength(ms_text, font=font)
-            draw.text((width - ms_w - 2, y), ms_text, font=font, fill=(140, 140, 180))
-            y += font_h + 1
-
-            # Row 3: Moon phase name
-            draw.text((text_x, y), phase_name, font=font, fill=(200, 200, 255))
+            # Row 1: Phase name (prominent)
+            draw.text((text_x, 2), phase_name, font=font, fill=(200, 200, 255))
             if moon_phase is not None:
                 pct = f"{int(moon_phase * 100)}%"
                 pct_w = draw.textlength(pct, font=font)
-                draw.text((width - pct_w - 2, y), pct, font=font, fill=(140, 140, 180))
-            y += font_h + 1
+                draw.text((width - pct_w - 2, 2), pct, font=font, fill=(140, 140, 180))
+
+            # Row 2: Sunrise / Sunset
+            y2 = 2 + font_h + 2
+            draw.text((text_x, y2), f"Rise {sunrise}", font=font_sm, fill=(255, 200, 0))
+            set_text = f"Set {sunset}"
+            set_w = draw.textlength(set_text, font=font_sm)
+            draw.text((width - set_w - 2, y2), set_text, font=font_sm, fill=(255, 120, 50))
+
+            # Row 3: Moonrise / Moonset
+            y3 = y2 + font_sm_h + 2
+            draw.text((text_x, y3), f"MR {moonrise}", font=font_sm, fill=(180, 180, 220))
+            ms_text = f"MS {moonset}"
+            ms_w = draw.textlength(ms_text, font=font_sm)
+            draw.text((width - ms_w - 2, y3), ms_text, font=font_sm, fill=(140, 140, 180))
 
             # Row 4: Day length
+            y4 = y3 + font_sm_h + 2
             if day_len:
-                dl_text = f"Day: {day_len}"
-                draw.text((text_x, y), dl_text, font=font, fill=self.COLORS['dim'])
+                draw.text((text_x, y4), f"Day {day_len}", font=font_sm, fill=self.COLORS['dim'])
 
             self.display_manager.image = img
             self.display_manager.update_display()
