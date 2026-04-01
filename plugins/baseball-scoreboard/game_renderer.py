@@ -263,18 +263,24 @@ class GameRenderer:
             bases_occupied = game.get('bases_occupied', [False, False, False])
             outs = game.get('outs', 0)
 
-            base_diamond_size = 7
-            out_circle_diameter = 3
-            out_vertical_spacing = 2
-            spacing_between_bases_outs = 3
+            # Read configurable game display settings
+            customization = self.config.get('customization', {})
+            bases_cfg = customization.get('bases', {})
+            outs_cfg = customization.get('outs', {})
+            count_cfg = customization.get('count', {})
+
+            base_diamond_size = bases_cfg.get('diamond_size', 7)
+            out_circle_diameter = outs_cfg.get('circle_diameter', 3)
+            out_vertical_spacing = outs_cfg.get('spacing', 2)
+            spacing_between_bases_outs = outs_cfg.get('distance_from_bases', 3)
             base_vert_spacing = 1
             base_horiz_spacing = 1
 
             base_cluster_height = base_diamond_size + base_vert_spacing + base_diamond_size
             base_cluster_width = base_diamond_size + base_horiz_spacing + base_diamond_size
 
-            overall_start_y = inning_bbox[3] + 1
-            bases_origin_x = (self.display_width - base_cluster_width) // 2
+            overall_start_y = inning_bbox[3] + 1 + bases_cfg.get('y_offset', 0)
+            bases_origin_x = (self.display_width - base_cluster_width) // 2 + bases_cfg.get('x_offset', 0)
 
             # Outs column position (only needed when count data is available)
             has_count_data = game.get('has_count_data', True)
@@ -288,8 +294,8 @@ class GameRenderer:
 
             # Draw bases as diamond polygons
             h_d = base_diamond_size // 2
-            base_fill = (255, 255, 255)
-            base_outline = (255, 255, 255)
+            base_fill = tuple(bases_cfg.get('occupied_color', [255, 255, 255]))
+            base_outline = tuple(bases_cfg.get('empty_color', [255, 255, 255]))
 
             # 2nd base (top center)
             c2x = bases_origin_x + base_cluster_width // 2
@@ -313,14 +319,16 @@ class GameRenderer:
 
             # Outs circles (only when count data is available)
             if has_count_data:
+                outs_fill = tuple(outs_cfg.get('counted_color', [255, 255, 255]))
+                outs_empty = tuple(outs_cfg.get('empty_color', [100, 100, 100]))
                 for i in range(3):
                     cx = outs_column_x
                     cy = outs_column_start_y + i * (out_circle_diameter + out_vertical_spacing)
                     coords = [cx, cy, cx + out_circle_diameter, cy + out_circle_diameter]
                     if i < outs:
-                        draw.ellipse(coords, fill=(255, 255, 255))
+                        draw.ellipse(coords, fill=outs_fill)
                     else:
-                        draw.ellipse(coords, outline=(100, 100, 100))
+                        draw.ellipse(coords, outline=outs_empty)
 
             # Balls-strikes count (below bases, only when count data is available)
             if has_count_data:
@@ -329,9 +337,10 @@ class GameRenderer:
                 count_text = f"{balls}-{strikes}"
                 count_font = self.fonts['detail']
                 count_width = draw.textlength(count_text, font=count_font)
-                count_y = overall_start_y + base_cluster_height + 2
+                count_y = overall_start_y + base_cluster_height + count_cfg.get('y_offset', 2)
                 count_x = bases_origin_x + (base_cluster_width - count_width) // 2
-                self._draw_text_with_outline(draw, count_text, (int(count_x), count_y), count_font)
+                count_text_color = tuple(count_cfg.get('text_color', [255, 255, 255]))
+                self._draw_text_with_outline(draw, count_text, (int(count_x), count_y), count_font, fill=count_text_color)
 
             # Score (centered between logos, below bases/count cluster)
             score_font = self.fonts['score']

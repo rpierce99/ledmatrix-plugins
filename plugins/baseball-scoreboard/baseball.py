@@ -484,13 +484,17 @@ class BaseballLive(Baseball, SportsLive):
             outs = game.get("outs", 0)
             inning_half = game["inning_half"]
 
-            # Define geometry
-            base_diamond_size = 7
-            out_circle_diameter = 3
-            out_vertical_spacing = 2  # Space between out circles
-            spacing_between_bases_outs = (
-                3  # Horizontal space between base cluster and out column
-            )
+            # Read configurable game display settings
+            customization = self.config.get('customization', {})
+            bases_cfg = customization.get('bases', {})
+            outs_cfg = customization.get('outs', {})
+            count_cfg = customization.get('count', {})
+
+            # Define geometry (configurable with defaults matching original)
+            base_diamond_size = bases_cfg.get('diamond_size', 7)
+            out_circle_diameter = outs_cfg.get('circle_diameter', 3)
+            out_vertical_spacing = outs_cfg.get('spacing', 2)
+            spacing_between_bases_outs = outs_cfg.get('distance_from_bases', 3)
             base_vert_spacing = 1  # Internal vertical space in base cluster
             base_horiz_spacing = 1  # Internal horizontal space in base cluster
 
@@ -509,8 +513,9 @@ class BaseballLive(Baseball, SportsLive):
                 inning_bbox[3] + 0
             )  # Start immediately below inning text
 
-            # Center the BASE cluster horizontally
-            bases_origin_x = (self.display_width - base_cluster_width) // 2
+            # Center the BASE cluster horizontally (with optional offset)
+            bases_origin_x = (self.display_width - base_cluster_width) // 2 + bases_cfg.get('x_offset', 0)
+            overall_start_y += bases_cfg.get('y_offset', 0)
 
             # Determine relative positions for outs based on inning half
             # Only compute outs column position when count data is available
@@ -531,8 +536,8 @@ class BaseballLive(Baseball, SportsLive):
                 )
 
             # --- Draw Bases (Diamonds) ---
-            base_color_occupied = (255, 255, 255)
-            base_color_empty = (255, 255, 255)  # Outline color
+            base_color_occupied = tuple(bases_cfg.get('occupied_color', [255, 255, 255]))
+            base_color_empty = tuple(bases_cfg.get('empty_color', [255, 255, 255]))
             h_d = base_diamond_size // 2
 
             # 2nd Base (Top center relative to bases_origin_x)
@@ -582,8 +587,8 @@ class BaseballLive(Baseball, SportsLive):
             # --- Draw Outs (Vertical Circles) ---
             # Only render outs and count when data is available (ESPN NCAA doesn't provide these)
             if has_count_data:
-                circle_color_out = (255, 255, 255)
-                circle_color_empty_outline = (100, 100, 100)
+                circle_color_out = tuple(outs_cfg.get('counted_color', [255, 255, 255]))
+                circle_color_empty_outline = tuple(outs_cfg.get('empty_color', [100, 100, 100]))
 
                 for i in range(3):
                     cx = outs_column_x
@@ -624,7 +629,7 @@ class BaseballLive(Baseball, SportsLive):
                 cluster_bottom_y = (
                     overall_start_y + base_cluster_height
                 )  # Find the bottom of the taller part (bases)
-                count_y = cluster_bottom_y + 2  # Start 2 pixels below cluster
+                count_y = cluster_bottom_y + count_cfg.get('y_offset', 2)
 
                 # Center horizontally within the BASE cluster width
                 count_x = bases_origin_x + (base_cluster_width - count_text_width) // 2
@@ -656,8 +661,9 @@ class BaseballLive(Baseball, SportsLive):
                         )
 
                     # Draw main text
+                    count_text_color = tuple(count_cfg.get('text_color', [255, 255, 255]))
                     self.display_manager._draw_bdf_text(
-                        count_text, count_x, count_y, color=text_color, font=bdf_font
+                        count_text, count_x, count_y, color=count_text_color, font=bdf_font
                     )
                 finally:
                     self.display_manager.draw = original_draw

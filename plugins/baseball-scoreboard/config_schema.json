@@ -1356,6 +1356,119 @@
                         }
                     },
                     "additionalProperties": false
+                },
+                "bases": {
+                "type": "object",
+                "title": "Bases Diamond",
+                "description": "Customize the base diamond indicators",
+                "properties": {
+                    "diamond_size": {
+                        "type": "integer",
+                        "default": 7,
+                        "minimum": 3,
+                        "maximum": 15,
+                        "description": "Size of each base diamond in pixels"
+                    },
+                    "occupied_color": {
+                        "type": "array",
+                        "items": { "type": "integer", "minimum": 0, "maximum": 255 },
+                        "default": [255, 255, 255],
+                        "minItems": 3,
+                        "maxItems": 3,
+                        "description": "Color when a base is occupied (RGB)"
+                    },
+                    "empty_color": {
+                        "type": "array",
+                        "items": { "type": "integer", "minimum": 0, "maximum": 255 },
+                        "default": [255, 255, 255],
+                        "minItems": 3,
+                        "maxItems": 3,
+                        "description": "Outline color when a base is empty (RGB)"
+                    },
+                    "x_offset": {
+                        "type": "integer",
+                        "default": 0,
+                        "minimum": -50,
+                        "maximum": 50,
+                        "description": "Horizontal offset for the bases cluster (positive = right)"
+                    },
+                    "y_offset": {
+                        "type": "integer",
+                        "default": 0,
+                        "minimum": -50,
+                        "maximum": 50,
+                        "description": "Vertical offset for the bases cluster (positive = down)"
+                    }
+                },
+                "additionalProperties": false
+            },
+            "outs": {
+                "type": "object",
+                "title": "Outs Circles",
+                "description": "Customize the outs indicator circles",
+                "properties": {
+                    "circle_diameter": {
+                        "type": "integer",
+                        "default": 3,
+                        "minimum": 2,
+                        "maximum": 10,
+                        "description": "Diameter of each out circle in pixels"
+                    },
+                    "counted_color": {
+                        "type": "array",
+                        "items": { "type": "integer", "minimum": 0, "maximum": 255 },
+                        "default": [255, 255, 255],
+                        "minItems": 3,
+                        "maxItems": 3,
+                        "description": "Fill color for counted outs (RGB)"
+                    },
+                    "empty_color": {
+                        "type": "array",
+                        "items": { "type": "integer", "minimum": 0, "maximum": 255 },
+                        "default": [100, 100, 100],
+                        "minItems": 3,
+                        "maxItems": 3,
+                        "description": "Outline color for remaining outs (RGB)"
+                    },
+                    "spacing": {
+                        "type": "integer",
+                        "default": 2,
+                        "minimum": 0,
+                        "maximum": 10,
+                        "description": "Vertical spacing between out circles in pixels"
+                    },
+                    "distance_from_bases": {
+                        "type": "integer",
+                        "default": 3,
+                        "minimum": 0,
+                        "maximum": 15,
+                        "description": "Horizontal distance from the bases cluster in pixels"
+                    }
+                },
+                "additionalProperties": false
+            },
+            "count": {
+                "type": "object",
+                "title": "Balls-Strikes Count",
+                "description": "Customize the balls-strikes count text",
+                "properties": {
+                    "text_color": {
+                        "type": "array",
+                        "items": { "type": "integer", "minimum": 0, "maximum": 255 },
+                        "default": [255, 255, 255],
+                        "minItems": 3,
+                        "maxItems": 3,
+                        "description": "Color for the count text (RGB)"
+                    },
+                    "y_offset": {
+                        "type": "integer",
+                        "default": 2,
+                        "minimum": 0,
+                        "maximum": 20,
+                        "description": "Pixels below the base cluster"
+                    }
+                },
+                "additionalProperties": false
                 }
             },
             "x-propertyOrder": [
@@ -1365,7 +1478,10 @@
                 "status_text",
                 "detail_text",
                 "rank_text",
-                "layout"
+                "layout",
+                "bases",
+                "outs",
+                "count"
             ],
             "additionalProperties": false
         }
