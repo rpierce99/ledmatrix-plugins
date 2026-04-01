@@ -818,7 +818,19 @@ class MastersRenderer:
         )
         if logo:
             lx = (self.width - logo.width) // 2
-            img.paste(logo, (lx, 3), logo if logo.mode == "RGBA" else None)
+            ly = 3
+            # Draw black glow behind logo for visibility
+            glow_pad = 2
+            for ox in range(-glow_pad, glow_pad + 1):
+                for oy in range(-glow_pad, glow_pad + 1):
+                    if ox == 0 and oy == 0:
+                        continue
+                    if logo.mode == "RGBA":
+                        # Use alpha channel to draw black shadow
+                        shadow = Image.new("RGBA", logo.size, (0, 0, 0, 0))
+                        shadow.paste((0, 0, 0), mask=logo.split()[3])
+                        img.paste(shadow, (lx + ox, ly + oy), shadow)
+            img.paste(logo, (lx, ly), logo if logo.mode == "RGBA" else None)
 
         # Countdown number - big and centered
         if days > 0:

@@ -7,6 +7,7 @@ fun facts, past champions, and Augusta National branding year-round.
 """
 
 import logging
+import os
 import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -54,7 +55,7 @@ class MastersTournamentPlugin(BasePlugin):
         self.display_duration = config.get("display_duration", 20)
 
         # Initialize components
-        self.logo_loader = MastersLogoLoader(self.plugin_dir)
+        self.logo_loader = MastersLogoLoader(os.path.dirname(os.path.abspath(__file__)))
         self.data_source = MastersDataSource(cache_manager, config)
 
         # Use enhanced renderer for 64x32+, base for tiny displays
@@ -109,6 +110,14 @@ class MastersTournamentPlugin(BasePlugin):
         # Fun fact rotation + scroll
         self._fact_index = 0
         self._fact_scroll = 0
+
+        # Internal timers for modes that rotate content within a display cycle
+        self._last_hole_switch = 0
+        self._hole_switch_interval = config.get("hole_display_duration", 15)
+        self._last_fact_advance = 0
+        self._fact_advance_interval = 2  # seconds between scroll steps
+        self._last_page_advance = {}  # per-mode page timers
+        self._page_interval = config.get("page_display_duration", 15)
 
         # Player card rotation
         self._player_card_index = 0
@@ -357,10 +366,21 @@ class MastersTournamentPlugin(BasePlugin):
         self.logger.warning(f"Unknown display mode: {display_mode}")
         return False
 
+    def _advance_page(self, key: str) -> int:
+        """Return current page for a mode, advancing only after page_interval seconds."""
+        now = time.time()
+        last = self._last_page_advance.get(key, 0)
+        if last > 0 and now - last >= self._page_interval:
+            self._page[key] = self._page.get(key, 0) + 1
+            self._last_page_advance[key] = now
+        elif last == 0:
+            self._last_page_advance[key] = now
+        return self._page.get(key, 0)
+
     def _show_image(self, image: Optional[Image.Image]) -> bool:
         """Helper to display an image if it exists."""
         if image:
-            self.display_manager.draw_image(image, 0, 0)
+            self.display_manager.image.paste(image, (0, 0))
             self.display_manager.update_display()
             return True
         return False
@@ -368,12 +388,10 @@ class MastersTournamentPlugin(BasePlugin):
     def _display_leaderboard(self, force_clear: bool) -> bool:
         if not self._leaderboard_data:
             return False
-        page = self._page["leaderboard"]
-        result = self._show_image(
+        page = self._advance_page("leaderboard")
+        return self._show_image(
             self.renderer.render_leaderboard(self._leaderboard_data, show_favorites=True, page=page)
         )
-        self._page["leaderboard"] = page + 1
-        return result
 
     def _display_player_cards(self, force_clear: bool) -> bool:
         if not self._leaderboard_data:
@@ -385,18 +403,18 @@ class MastersTournamentPlugin(BasePlugin):
         return self._show_image(self.renderer.render_player_card(player))
 
     def _display_course_tour(self, force_clear: bool) -> bool:
-        result = self._show_image(self.renderer.render_hole_card(self._current_hole))
-        self._current_hole = (self._current_hole % 18) + 1
-        return result
+        now = time.time()
+        if now - self._last_hole_switch >= self._hole_switch_interval:
+            self._current_hole = (self._current_hole % 18) + 1
+            self._last_hole_switch = now
+        return self._show_image(self.renderer.render_hole_card(self._current_hole))
 
     def _display_amen_corner(self, force_clear: bool) -> bool:
         return self._show_image(self.renderer.render_amen_corner())
 
     def _display_past_champions(self, force_clear: bool) -> bool:
-        page = self._page["champions"]
-        result = self._show_image(self.renderer.render_past_champions(page=page))
-        self._page["champions"] = page + 1
-        return result
+        page = self._advance_page("champions")
+        return self._show_image(self.renderer.render_past_champions(page=page))
 
     def _display_hole_by_hole(self, force_clear: bool) -> bool:
         """Display hole-by-hole course tour (same as course_tour)."""
@@ -404,17 +422,18 @@ class MastersTournamentPlugin(BasePlugin):
 
     def _display_featured_holes(self, force_clear: bool) -> bool:
         featured = [12, 13, 15, 16]
+        now = time.time()
+        if now - self._last_hole_switch >= self._hole_switch_interval:
+            self._featured_hole_index += 1
+            self._last_hole_switch = now
         hole = featured[self._featured_hole_index % len(featured)]
-        self._featured_hole_index += 1
         return self._show_image(self.renderer.render_hole_card(hole))
 
     def _display_schedule(self, force_clear: bool) -> bool:
-        page = self._page["schedule"]
-        result = self._show_image(
+        page = self._advance_page("schedule")
+        return self._show_image(
             self.renderer.render_schedule(self._schedule_data, page=page)
         )
-        self._page["schedule"] = page + 1
-        return result
 
     def _display_live_action(self, force_clear: bool) -> bool:
         """Show live alert if enhanced renderer available, else leaderboard."""
@@ -431,16 +450,17 @@ class MastersTournamentPlugin(BasePlugin):
         return self._display_leaderboard(force_clear)
 
     def _display_tournament_stats(self, force_clear: bool) -> bool:
-        page = self._page["stats"]
-        result = self._show_image(self.renderer.render_tournament_stats(page=page))
-        self._page["stats"] = page + 1
-        return result
+        page = self._advance_page("stats")
+        return self._show_image(self.renderer.render_tournament_stats(page=page))
 
     def _display_fun_facts(self, force_clear: bool) -> bool:
         result = self._show_image(
             self.renderer.render_fun_fact(self._fact_index, scroll_offset=self._fact_scroll)
         )
-        self._fact_scroll += 1
+        now = time.time()
+        if now - self._last_fact_advance >= self._fact_advance_interval:
+            self._fact_scroll += 1
+            self._last_fact_advance = now
         # Move to next fact after scrolling through
         if self._fact_scroll > 5:
             self._fact_index += 1
@@ -468,10 +488,8 @@ class MastersTournamentPlugin(BasePlugin):
 
     def _display_course_overview(self, force_clear: bool) -> bool:
         if hasattr(self.renderer, "render_course_overview"):
-            page = self._page["course_overview"]
-            result = self._show_image(self.renderer.render_course_overview(page=page))
-            self._page["course_overview"] = page + 1
-            return result
+            page = self._advance_page("course_overview")
+            return self._show_image(self.renderer.render_course_overview(page=page))
         return self._display_amen_corner(force_clear)
 
     def get_vegas_content(self) -> Optional[List[Image.Image]]:
