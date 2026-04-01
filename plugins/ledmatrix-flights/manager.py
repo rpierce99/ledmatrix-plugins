@@ -1369,6 +1369,15 @@ class FlightTrackerPlugin(BasePlugin):
             }
             
             # Update aircraft data — all_aircraft_data for stats, aircraft_data for map/area
+            # Preserve FR24-enriched fields that SkyAware doesn't provide
+            for store in (self.all_aircraft_data, self.aircraft_data):
+                existing = store.get(icao)
+                if existing:
+                    for field in ('origin', 'destination', 'airline_name', 'fr24_id',
+                                  'origin_lat', 'origin_lon', 'dest_lat', 'dest_lon', 'fr24_time'):
+                        if field in existing and field not in aircraft_info:
+                            aircraft_info[field] = existing[field]
+
             self.all_aircraft_data[icao] = aircraft_info
             if in_range:
                 self.aircraft_data[icao] = aircraft_info
