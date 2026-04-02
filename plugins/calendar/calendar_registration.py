@@ -28,6 +28,7 @@ except ImportError:
     sys.exit(1)
 
 SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']
+LOOPBACK_REDIRECT = 'http://127.0.0.1'
 PLUGIN_DIR = Path(__file__).parent.resolve()
 CREDENTIALS_FILE = PLUGIN_DIR / 'credentials.json'
 TOKEN_FILE = PLUGIN_DIR / 'token.pickle'
@@ -68,10 +69,11 @@ def main():
     if _is_headless():
         try:
             stdin_data = sys.stdin.read().strip()
-        except Exception:
-            pass
+        except (IOError, OSError) as e:
+            print(json.dumps({"status": "error", "message": f"Failed to read stdin: {e}"}), file=sys.stderr)
+            stdin_data = ""
 
-    # If stdin contains a redirect URL (step 2), complete the flow
+    # If stdin contains an auth code (step 2), complete the flow
     if stdin_data and ('http' in stdin_data or 'code=' in stdin_data):
         # Try to parse as JSON first (web UI sends JSON params)
         redirect_url = stdin_data
@@ -83,7 +85,7 @@ def main():
 
         try:
             flow = InstalledAppFlow.from_client_secrets_file(str(CREDENTIALS_FILE), SCOPES)
-            flow.redirect_uri = 'urn:ietf:wg:oauth:2.0:oob'
+            flow.redirect_uri = LOOPBACK_REDIRECT
             # Extract the authorization code from the redirect URL
             if 'code=' in redirect_url:
                 from urllib.parse import urlparse, parse_qs
@@ -116,16 +118,14 @@ def main():
     if _is_headless():
         try:
             flow = InstalledAppFlow.from_client_secrets_file(str(CREDENTIALS_FILE), SCOPES)
-            flow.redirect_uri = 'urn:ietf:wg:oauth:2.0:oob'
+            flow.redirect_uri = LOOPBACK_REDIRECT
             auth_url, _ = flow.authorization_url(prompt='consent')
 
             print(json.dumps({
                 "status": "success",
                 "requires_step2": True,
                 "auth_url": auth_url,
-                "message": "Open the link below to authorize Google Calendar access",
-                "step2_prompt": "Paste the authorization code from Google:",
-                "step2_button_text": "Complete Authentication"
+                "message": "Open the link below to authorize Google Calendar access"
             }))
             return
         except Exception as e:
