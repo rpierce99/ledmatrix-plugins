@@ -7,34 +7,11 @@
       "default": false,
       "description": "Enable or disable the calendar plugin"
     },
-    "update_interval": {
-      "type": "integer",
-      "default": 3600,
-      "minimum": 60,
-      "maximum": 86400,
-      "description": "Update interval in seconds"
-    },
-    "max_events": {
-      "type": "integer",
-      "default": 3,
-      "minimum": 1,
-      "maximum": 10,
-      "description": "Maximum number of events to fetch and display"
-    },
-    "calendars": {
-      "type": "array",
-      "x-widget": "google-calendar-picker",
-      "items": {
-        "type": "string"
-      },
-      "minItems": 1,
-      "default": ["primary"],
-      "description": "Calendar IDs to display events from. Click 'Load My Calendars' to select from your Google account."
-    },
     "credentials_file": {
       "type": "string",
+      "title": "Step 1: Upload Credentials",
       "default": "credentials.json",
-      "description": "Filename for Google Calendar API credentials (stored in plugin directory)",
+      "description": "Upload your Google OAuth credentials file. Get it from console.cloud.google.com > APIs > Credentials > Create OAuth Client ID (Desktop app) > Download JSON.",
       "x-widget": "file-upload",
       "x-upload-config": {
         "plugin_id": "calendar",
@@ -46,15 +23,28 @@
         "target_filename": "credentials.json"
       }
     },
-    "token_file": {
-      "type": "string",
-      "default": "token.pickle",
-      "description": "Filename for OAuth token (stored in plugin directory)"
+    "calendars": {
+      "type": "array",
+      "title": "Step 3: Select Calendars",
+      "x-widget": "google-calendar-picker",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "default": ["primary"],
+      "description": "After authenticating, click 'Load My Calendars' to select which calendars to display."
+    },
+    "max_events": {
+      "type": "integer",
+      "default": 3,
+      "minimum": 1,
+      "maximum": 10,
+      "description": "Maximum number of upcoming events to show"
     },
     "show_all_day_events": {
       "type": "boolean",
       "default": true,
-      "description": "Show all-day events"
+      "description": "Include all-day events in the display"
     },
     "event_rotation_interval": {
       "type": "number",
@@ -66,7 +56,14 @@
       "type": "number",
       "default": 30,
       "minimum": 5,
-      "description": "Total display duration in seconds"
+      "description": "Total display duration in seconds before moving to next plugin"
+    },
+    "update_interval": {
+      "type": "integer",
+      "default": 3600,
+      "minimum": 60,
+      "maximum": 86400,
+      "description": "How often to refresh calendar data from Google (seconds)"
     },
     "customization": {
       "type": "object",
@@ -140,6 +137,17 @@
       "additionalProperties": false
     }
   },
-  "required": ["enabled", "credentials_file"]
+  "x-propertyOrder": [
+    "enabled",
+    "credentials_file",
+    "calendars",
+    "max_events",
+    "show_all_day_events",
+    "event_rotation_interval",
+    "display_duration",
+    "update_interval",
+    "customization"
+  ],
+  "required": ["enabled"],
+  "additionalProperties": true
 }
-

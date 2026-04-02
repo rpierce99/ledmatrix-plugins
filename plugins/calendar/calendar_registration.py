@@ -2,21 +2,17 @@
 """
 Google Calendar Registration Script for LEDMatrix Calendar Plugin
 
-This script helps you set up OAuth2 authentication for the Google Calendar API.
-It will open a browser window for you to authorize access to your calendar.
+Handles OAuth2 authentication for the Google Calendar API.
+Supports both headless (web UI) and interactive (terminal) modes.
 
-Usage:
-    python calendar_registration.py
-
-Requirements:
-    - Google Cloud Project with Calendar API enabled
-    - OAuth 2.0 credentials (download as credentials.json)
-    - Place credentials.json in this plugin directory
+Web UI mode: outputs JSON for the two-step OAuth flow
+Terminal mode: uses run_local_server() for direct browser auth
 """
 
+import json
 import os
-import sys
 import pickle
+import sys
 from pathlib import Path
 
 try:
@@ -25,119 +21,148 @@ try:
     from google.auth.transport.requests import Request
     from googleapiclient.discovery import build
 except ImportError:
-    print("ERROR: Required Google libraries not installed!")
-    print("Install them with:")
-    print("  pip install google-auth-oauthlib google-auth-httplib2 google-api-python-client")
+    print(json.dumps({
+        "status": "error",
+        "message": "Required Google libraries not installed. Run: pip install google-auth-oauthlib google-auth-httplib2 google-api-python-client"
+    }))
     sys.exit(1)
 
-# Scopes for Calendar API (read-only)
 SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']
-
-# Get plugin directory
-# When executed from web interface, __file__ will be the script path
 PLUGIN_DIR = Path(__file__).parent.resolve()
 CREDENTIALS_FILE = PLUGIN_DIR / 'credentials.json'
 TOKEN_FILE = PLUGIN_DIR / 'token.pickle'
 
 
+def _is_headless():
+    """Detect if running from web UI (stdin is piped/closed)."""
+    try:
+        return not os.isatty(sys.stdin.fileno())
+    except Exception:
+        return True
+
+
+def _test_credentials(creds):
+    """Test credentials by listing calendars. Returns calendar list."""
+    service = build('calendar', 'v3', credentials=creds)
+    calendar_list = service.calendarList().list().execute()
+    return calendar_list.get('items', [])
+
+
 def main():
-    """Run the OAuth2 flow to authenticate with Google Calendar."""
+    if not CREDENTIALS_FILE.exists():
+        msg = (
+            "credentials.json not found. To set up:\n"
+            "1. Go to https://console.cloud.google.com/\n"
+            "2. Create a project and enable Google Calendar API\n"
+            "3. Create OAuth 2.0 credentials (Desktop app)\n"
+            "4. Download the JSON and upload it above"
+        )
+        if _is_headless():
+            print(json.dumps({"status": "error", "message": msg}))
+        else:
+            print(f"ERROR: {msg}")
+        sys.exit(1)
+
+    # Check for step-2 input (web UI sends the redirect URL via stdin)
+    stdin_data = ""
+    if _is_headless():
+        try:
+            stdin_data = sys.stdin.read().strip()
+        except Exception:
+            pass
+
+    # If stdin contains a redirect URL (step 2), complete the flow
+    if stdin_data and ('http' in stdin_data or 'code=' in stdin_data):
+        # Try to parse as JSON first (web UI sends JSON params)
+        redirect_url = stdin_data
+        try:
+            params = json.loads(stdin_data)
+            redirect_url = params if isinstance(params, str) else params.get('redirect_url', stdin_data)
+        except (json.JSONDecodeError, AttributeError):
+            pass
+
+        try:
+            flow = InstalledAppFlow.from_client_secrets_file(str(CREDENTIALS_FILE), SCOPES)
+            flow.redirect_uri = 'urn:ietf:wg:oauth:2.0:oob'
+            # Extract the authorization code from the redirect URL
+            if 'code=' in redirect_url:
+                from urllib.parse import urlparse, parse_qs
+                parsed = urlparse(redirect_url)
+                code = parse_qs(parsed.query).get('code', [None])[0]
+                if not code:
+                    code = redirect_url  # Maybe it's just the code
+            else:
+                code = redirect_url.strip()
+
+            flow.fetch_token(code=code)
+            creds = flow.credentials
+
+            with open(TOKEN_FILE, 'wb') as token:
+                pickle.dump(creds, token)
+
+            calendars = _test_credentials(creds)
+            cal_names = [c.get('summary', c['id']) for c in calendars]
+
+            print(json.dumps({
+                "status": "success",
+                "message": f"Authentication complete! Found {len(calendars)} calendar(s): {', '.join(cal_names)}"
+            }))
+            return
+        except Exception as e:
+            print(json.dumps({"status": "error", "message": f"Failed to complete authentication: {e}"}))
+            sys.exit(1)
+
+    # Step 1: Generate auth URL
+    if _is_headless():
+        try:
+            flow = InstalledAppFlow.from_client_secrets_file(str(CREDENTIALS_FILE), SCOPES)
+            flow.redirect_uri = 'urn:ietf:wg:oauth:2.0:oob'
+            auth_url, _ = flow.authorization_url(prompt='consent')
+
+            print(json.dumps({
+                "status": "success",
+                "requires_step2": True,
+                "auth_url": auth_url,
+                "message": "Open the link below to authorize Google Calendar access",
+                "step2_prompt": "Paste the authorization code from Google:",
+                "step2_button_text": "Complete Authentication"
+            }))
+            return
+        except Exception as e:
+            print(json.dumps({"status": "error", "message": f"Failed to start authentication: {e}"}))
+            sys.exit(1)
+
+    # Interactive terminal mode
     print("=" * 60)
     print("Google Calendar Plugin - Registration")
     print("=" * 60)
     print()
-    
-    # Check for credentials file
-    if not CREDENTIALS_FILE.exists():
-        print("ERROR: credentials.json not found!")
-        print()
-        print("To get credentials.json:")
-        print("1. Go to https://console.cloud.google.com/")
-        print("2. Create a new project (or select existing)")
-        print("3. Enable the Google Calendar API")
-        print("4. Create OAuth 2.0 credentials (Desktop app)")
-        print("5. Download the JSON file")
-        print(f"6. Save it as: {CREDENTIALS_FILE}")
-        print()
-        sys.exit(1)
-    
     print(f"Found credentials file: {CREDENTIALS_FILE}")
-    print()
-    
-    # Check if already authenticated
+
     if TOKEN_FILE.exists():
-        print(f"Existing token found: {TOKEN_FILE}")
-        # When run from web interface, stdin may not be available
-        # In that case, proceed with re-authentication
-        try:
-            response = input("Do you want to re-authenticate? (y/N): ").strip().lower()
-            if response != 'y':
-                print("Keeping existing authentication.")
-                return
-        except (EOFError, OSError):
-            # No stdin available (web interface execution) - proceed with re-authentication
-            print("Re-authenticating (no user input available)...")
-        else:
-            print("Re-authenticating...")
-        print()
-    
-    # Start OAuth flow
-    print("Starting OAuth2 flow...")
-    print("A browser window will open for authentication.")
-    print()
-    
+        response = input("Existing token found. Re-authenticate? (y/N): ").strip().lower()
+        if response != 'y':
+            print("Keeping existing authentication.")
+            return
+
     try:
-        flow = InstalledAppFlow.from_client_secrets_file(
-            str(CREDENTIALS_FILE), 
-            SCOPES
-        )
-        
-        # Run local server for OAuth callback
-        creds = flow.run_local_server(
-            port=0,
-            prompt='consent',
-            success_message='Authentication successful! You can close this window.'
-        )
-        
-        # Save the credentials
+        flow = InstalledAppFlow.from_client_secrets_file(str(CREDENTIALS_FILE), SCOPES)
+        creds = flow.run_local_server(port=0, prompt='consent',
+                                       success_message='Authentication successful! You can close this window.')
         with open(TOKEN_FILE, 'wb') as token:
             pickle.dump(creds, token)
-        
-        print()
-        print("=" * 60)
-        print("SUCCESS! Authentication complete!")
-        print("=" * 60)
-        print()
-        print(f"Token saved to: {TOKEN_FILE}")
-        print()
-        
-        # Test the credentials
-        print("Testing calendar access...")
-        service = build('calendar', 'v3', credentials=creds)
-        
-        # Get calendar list
-        calendar_list = service.calendarList().list().execute()
-        calendars = calendar_list.get('items', [])
-        
+
+        print("\nSUCCESS! Authentication complete!")
+        calendars = _test_credentials(creds)
         print(f"Found {len(calendars)} calendar(s):")
         for cal in calendars:
-            cal_id = cal['id']
-            cal_name = cal.get('summary', 'Unnamed Calendar')
-            is_primary = ' (PRIMARY)' if cal.get('primary', False) else ''
-            print(f"  - {cal_name}{is_primary}")
-            print(f"    ID: {cal_id}")
-        
-        print()
-        print("Setup complete! You can now use the calendar plugin.")
-        print()
-        
+            name = cal.get('summary', 'Unnamed')
+            primary = ' (PRIMARY)' if cal.get('primary') else ''
+            print(f"  - {name}{primary}: {cal['id']}")
     except Exception as e:
-        print()
-        print(f"ERROR during authentication: {e}")
-        print()
+        print(f"\nERROR: {e}")
         sys.exit(1)
 
 
 if __name__ == '__main__':
     main()
-

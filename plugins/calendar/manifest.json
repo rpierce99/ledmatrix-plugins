@@ -22,12 +22,14 @@
     {
       "id": "authenticate-google",
       "type": "script",
-      "title": "Google Calendar Authentication",
-      "description": "Authenticate with Google Calendar to enable event display",
+      "title": "Step 2: Authenticate with Google",
+      "description": "Click to generate an authorization link. Visit the link in your browser, authorize access, then paste the code back here.",
       "button_text": "Authenticate Google Calendar",
       "icon": "fab fa-google",
       "color": "blue",
       "script": "calendar_registration.py",
+      "step2_prompt": "Paste the authorization code from Google:",
+      "step2_button_text": "Complete Authentication",
       "success_message": "Google Calendar authentication completed successfully",
       "error_message": "Google Calendar authentication failed"
     }
