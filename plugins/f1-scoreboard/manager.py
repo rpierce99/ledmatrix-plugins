@@ -76,6 +76,7 @@ class F1ScoreboardPlugin(BasePlugin):
             config, self.logo_loader, self.logger)
         self._scroll_manager = ScrollDisplayManager(
             display_manager, config, self.logger)
+        self.enable_scrolling = self._scroll_manager is not None
 
         # Data state
         self._driver_standings: List[Dict] = []
@@ -654,6 +655,7 @@ class F1ScoreboardPlugin(BasePlugin):
             new_config, self.logo_loader, self.logger)
         self._scroll_manager = ScrollDisplayManager(
             self.display_manager, new_config, self.logger)
+        self.enable_scrolling = self._scroll_manager is not None
 
         # Force data refresh
         self._last_update = 0
