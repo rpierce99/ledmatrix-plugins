@@ -150,10 +150,20 @@ class DataFetcher:
 
             league = League(**kwargs)
             self._leagues[cache_key] = league
-            self.logger.info(f"Connected to ESPN {sport} league {league_id} ({year})")
+            self.logger.info(f"Connected to ESPN {sport} league {league_id} ({year}): "
+                           f"{league.settings.name if hasattr(league, 'settings') else 'unknown'}")
             return league
+        except ImportError:
+            self.logger.error("espn-api package is not installed. Run: pip install espn-api")
+            return None
         except Exception as e:
-            self.logger.error(f"Failed to connect to ESPN league {league_id}: {e}")
+            err_name = type(e).__name__
+            if 'AccessDenied' in err_name:
+                self.logger.error(f"League {league_id} is private — add your espn_s2 and SWID cookies in plugin settings")
+            elif 'InvalidLeague' in err_name:
+                self.logger.error(f"League {league_id} does not exist on ESPN. Check your league ID.")
+            else:
+                self.logger.error(f"Failed to connect to ESPN league {league_id}: {err_name}: {e}")
             return None
 
     def fetch_league_data(self, league_cfg: Dict[str, Any]) -> None:
@@ -197,9 +207,9 @@ class DataFetcher:
             return
 
         try:
-            matchup = self._fetch_matchup(league, sport)
-            standings = self._fetch_standings(league, sport)
-            roster = self._fetch_roster(league, sport)
+            matchup = self._fetch_matchup(league, sport, league_cfg)
+            standings = self._fetch_standings(league, sport, league_cfg)
+            roster = self._fetch_roster(league, sport, league_cfg)
 
             self._league_data[data_key] = {
                 'sport': sport,
@@ -220,24 +230,48 @@ class DataFetcher:
                 self._league_data[data_key] = cached
                 self.logger.info(f"Using cached data for {data_key} after fetch error")
 
-    def _find_my_team(self, league):
-        """Find the user's team in the league."""
-        for team in league.teams:
-            if hasattr(team, 'owners') and team.owners:
-                for owner in team.owners:
-                    owner_id = owner.get('id', '') if isinstance(owner, dict) else str(owner)
-                    if owner_id == self.swid or owner_id == self.swid.strip('{}'):
-                        return team
-        # Fallback: return first team if we can't match
+    def _find_my_team(self, league, league_cfg: Optional[Dict[str, Any]] = None):
+        """Find the user's team in the league.
+
+        Priority: team_id from config > SWID owner match > first team fallback.
+        """
+        # 1. Try explicit team_id from config
+        if league_cfg and league_cfg.get('team_id'):
+            target_id = league_cfg['team_id']
+            for team in league.teams:
+                if getattr(team, 'team_id', None) == target_id:
+                    self.logger.debug(f"Matched team by team_id={target_id}: {team.team_name}")
+                    return team
+            self.logger.warning(f"team_id={target_id} not found in league, trying SWID match")
+
+        # 2. Try matching SWID to owner
+        if self.swid:
+            swid_clean = self.swid.strip('{}')
+            for team in league.teams:
+                if hasattr(team, 'owners') and team.owners:
+                    for owner in team.owners:
+                        owner_id = owner.get('id', '') if isinstance(owner, dict) else str(owner)
+                        if owner_id == self.swid or owner_id.strip('{}') == swid_clean:
+                            return team
+
+        # 3. Try matching team_name from config
+        if league_cfg and league_cfg.get('team_name'):
+            target_name = league_cfg['team_name'].lower()
+            for team in league.teams:
+                if team.team_name.lower() == target_name:
+                    return team
+
+        # 4. Fallback: first team
         if league.teams:
-            self.logger.warning("Could not match SWID to a team owner, using first team")
+            self.logger.warning("Could not identify your team — using first team. "
+                              "Set team_id in league config for accuracy.")
             return league.teams[0]
         return None
 
-    def _fetch_matchup(self, league, sport: str) -> Optional[Dict[str, Any]]:
+    def _fetch_matchup(self, league, sport: str, league_cfg: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
         """Fetch current matchup data."""
         try:
-            my_team = self._find_my_team(league)
+            my_team = self._find_my_team(league, league_cfg)
             if not my_team:
                 self.logger.warning("Could not find user's team in league")
                 return None
@@ -281,10 +315,10 @@ class DataFetcher:
             self.logger.error(f"Error fetching matchup: {e}", exc_info=True)
             return None
 
-    def _fetch_standings(self, league, sport: str) -> List[Dict[str, Any]]:
+    def _fetch_standings(self, league, sport: str, league_cfg: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """Fetch league standings."""
         try:
-            my_team = self._find_my_team(league)
+            my_team = self._find_my_team(league, league_cfg)
             standings = []
 
             sorted_teams = sorted(league.teams, key=lambda t: t.standing if hasattr(t, 'standing') else 0)
@@ -305,10 +339,10 @@ class DataFetcher:
             self.logger.error(f"Error fetching standings: {e}", exc_info=True)
             return []
 
-    def _fetch_roster(self, league, sport: str) -> List[Dict[str, Any]]:
+    def _fetch_roster(self, league, sport: str, league_cfg: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """Fetch roster data for user's team."""
         try:
-            my_team = self._find_my_team(league)
+            my_team = self._find_my_team(league, league_cfg)
             if not my_team:
                 return []
 

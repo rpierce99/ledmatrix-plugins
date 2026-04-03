@@ -41,6 +41,11 @@
             "title": "League ID",
             "description": "Your ESPN Fantasy league ID (the number from the URL)"
           },
+          "team_id": {
+            "type": "integer",
+            "title": "Team ID (Optional)",
+            "description": "Your team's ID within the league. Required for public leagues or if SWID matching fails. Find it in the URL when viewing your team (e.g., ...&teamId=3)."
+          },
           "team_name": {
             "type": "string",
             "title": "Display Name (Optional)",
@@ -56,7 +61,7 @@
         },
         "required": ["sport", "league_id"],
         "additionalProperties": false,
-        "x-propertyOrder": ["sport", "league_id", "team_name", "year"]
+        "x-propertyOrder": ["sport", "league_id", "team_id", "team_name", "year"]
       }
     },
     "display_modes": {
@@ -171,36 +176,42 @@
         "winning_color": {
           "type": "string",
           "default": "#00FF00",
+          "pattern": "^#[0-9A-Fa-f]{6}$",
           "title": "Winning",
           "description": "Color when your team is winning"
         },
         "losing_color": {
           "type": "string",
           "default": "#FF0000",
+          "pattern": "^#[0-9A-Fa-f]{6}$",
           "title": "Losing",
           "description": "Color when your team is losing"
         },
         "tied_color": {
           "type": "string",
           "default": "#FFFFFF",
+          "pattern": "^#[0-9A-Fa-f]{6}$",
           "title": "Tied",
           "description": "Color when scores are tied"
         },
         "my_team_color": {
           "type": "string",
           "default": "#FFD700",
+          "pattern": "^#[0-9A-Fa-f]{6}$",
           "title": "My Team Highlight",
           "description": "Highlight color for your team in standings"
         },
         "projection_color": {
           "type": "string",
           "default": "#888888",
+          "pattern": "^#[0-9A-Fa-f]{6}$",
           "title": "Projections",
           "description": "Color for projected score text"
         },
         "header_color": {
           "type": "string",
           "default": "#4488FF",
+          "pattern": "^#[0-9A-Fa-f]{6}$",
           "title": "Header",
           "description": "Color for headers (week number, section labels)"
         }
