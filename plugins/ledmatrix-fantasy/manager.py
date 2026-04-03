@@ -82,8 +82,11 @@ class FantasyPlugin(BasePlugin):
         self.scroll_helper = ScrollHelper(self.display_width, self.display_height, self.logger)
 
         # Configure scroll helper
+        scroll_delay = config.get('scroll_delay', 0.01)
         self.scroll_helper.set_scroll_speed(self.scroll_speed)
-        self.scroll_helper.set_scroll_delay(0.01)
+        self.scroll_helper.set_scroll_delay(scroll_delay)
+        if hasattr(self.scroll_helper, 'set_target_fps'):
+            self.scroll_helper.set_target_fps(100)
 
         # Display state
         self.current_mode_index = 0
@@ -214,7 +217,7 @@ class FantasyPlugin(BasePlugin):
                 self.display_manager.update_display()
 
             if self.scroll_helper.is_scroll_complete():
-                self._cycle_complete = True
+                self._advance_mode()
 
     def _display_roster(self, rosters: List[Dict[str, Any]], force_clear: bool) -> None:
         """Display roster breakdown as a scrolling ticker."""
@@ -239,7 +242,7 @@ class FantasyPlugin(BasePlugin):
                 self.display_manager.update_display()
 
             if self.scroll_helper.is_scroll_complete():
-                self._cycle_complete = True
+                self._advance_mode()
 
     def _display_fallback(self) -> None:
         """Show a fallback message when no data is available."""
@@ -248,12 +251,29 @@ class FantasyPlugin(BasePlugin):
         self.display_manager.update_display()
 
     def _advance_mode(self) -> None:
-        """Move to the next display mode, cycling through leagues."""
-        self.current_mode_index = (self.current_mode_index + 1) % len(self.enabled_modes)
-        if self.current_mode_index == 0:
+        """Move to the next display mode, cycling through leagues.
+
+        Order: League1-Mode1 → League1-Mode2 → ... → League2-Mode1 → ...
+        Sets _cycle_complete when all leagues × all modes have been shown once.
+        """
+        self.current_mode_index += 1
+        if self.current_mode_index >= len(self.enabled_modes):
+            self.current_mode_index = 0
             self.current_league_index += 1
+
+            # Check if we've cycled through all leagues
+            num_leagues = max(
+                len(self.data_fetcher.get_matchup_data()),
+                len(self.data_fetcher.get_standings_data()),
+                len(self.data_fetcher.get_roster_data()),
+                1,
+            )
+            if self.current_league_index >= num_leagues:
+                self._cycle_complete = True
+                self.current_league_index = 0
+
         self.scroll_helper.clear_cache()
-        self._cycle_complete = False
+        self.matchup_start_time = 0
 
     def is_cycle_complete(self) -> bool:
         """Check if all modes/leagues have been displayed once."""

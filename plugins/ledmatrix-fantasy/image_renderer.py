@@ -211,7 +211,15 @@ class ImageRenderer:
         """Draw a single matchup row: team name left-aligned, score right-aligned."""
         margin = 2
         score_text = f"{score:.1f}"
+
+        # For high scores (3+ digits), use the compact name font for scores
+        # to leave enough room for the team name
+        effective_score_font = score_font
         score_w = self._text_width(score_text, score_font)
+        min_name_width = self._text_width("ABCDEFGH", name_font)  # Need at least ~8 chars
+        if self.display_width - score_w - margin * 3 < min_name_width:
+            effective_score_font = name_font
+            score_w = self._text_width(score_text, name_font)
 
         # Truncate team name to leave room for score
         available = self.display_width - score_w - margin * 3
@@ -221,10 +229,10 @@ class ImageRenderer:
         if truncated != team_name:
             truncated = truncated.rstrip() + ".."
 
-        # Draw name (left, compact font) and score (right, bold font)
+        # Draw name (left, compact font) and score (right)
         self._draw_outlined_text(draw, (margin, y), truncated, name_font, color)
         score_x = self.display_width - score_w - margin
-        self._draw_outlined_text(draw, (score_x, y), score_text, score_font, color)
+        self._draw_outlined_text(draw, (score_x, y), score_text, effective_score_font, color)
 
     # ── Standings Ticker ────────────────────────────────────────────
 
