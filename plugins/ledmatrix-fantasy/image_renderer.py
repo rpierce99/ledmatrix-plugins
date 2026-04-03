@@ -25,12 +25,13 @@ def _hex_to_rgb(hex_color: str) -> Tuple[int, int, int]:
 class ImageRenderer:
     """Renders fantasy sports data as PIL images for the LED matrix."""
 
-    # Font size presets keyed by display height ranges
+    # Font config keyed by display height ranges
+    # Each entry: {role: (font_file, size)}
+    # Roles: small (detail text), name (team/player names), score (scores/numbers), header (labels)
     FONT_PROFILES = {
-        # (small_size, medium_size, large_size)
-        16: (5, 6, 8),
-        32: (6, 8, 10),
-        64: (8, 12, 16),
+        16: {'small': ('4x6-font.ttf', 5), 'name': ('4x6-font.ttf', 6), 'score': ('PressStart2P-Regular.ttf', 6), 'header': ('4x6-font.ttf', 5)},
+        32: {'small': ('4x6-font.ttf', 6), 'name': ('4x6-font.ttf', 8), 'score': ('PressStart2P-Regular.ttf', 6), 'header': ('4x6-font.ttf', 6)},
+        64: {'small': ('4x6-font.ttf', 8), 'name': ('4x6-font.ttf', 10), 'score': ('PressStart2P-Regular.ttf', 10), 'header': ('4x6-font.ttf', 8)},
     }
 
     def __init__(self, display_width: int, display_height: int,
@@ -62,8 +63,8 @@ class ImageRenderer:
         # Load fonts scaled to display
         self.fonts = self._load_fonts()
 
-    def _get_font_sizes(self) -> Tuple[int, int, int]:
-        """Select font sizes based on display height."""
+    def _get_font_profile(self) -> Dict[str, Tuple[str, int]]:
+        """Select font profile based on display height."""
         h = self.display_height
         if h <= 16:
             return self.FONT_PROFILES[16]
@@ -72,26 +73,22 @@ class ImageRenderer:
         return self.FONT_PROFILES[64]
 
     def _load_fonts(self) -> Dict[str, ImageFont.FreeTypeFont]:
-        """Load fonts scaled to the display, with fallbacks."""
+        """Load role-based fonts scaled to the display, with fallbacks."""
         fonts = {}
         font_dir = "assets/fonts"
-        sm, md, lg = self._get_font_sizes()
+        profile = self._get_font_profile()
 
-        for name, size, preferred in [
-            ('small', sm, "4x6-font.ttf"),
-            ('medium', md, "PressStart2P-Regular.ttf"),
-            ('large', lg, "PressStart2P-Regular.ttf"),
-        ]:
+        for role, (font_file, size) in profile.items():
             loaded = False
-            for font_file in [preferred, "PressStart2P-Regular.ttf", "4x6-font.ttf"]:
+            for try_file in [font_file, "4x6-font.ttf", "PressStart2P-Regular.ttf"]:
                 try:
-                    fonts[name] = ImageFont.truetype(os.path.join(font_dir, font_file), size)
+                    fonts[role] = ImageFont.truetype(os.path.join(font_dir, try_file), size)
                     loaded = True
                     break
                 except (IOError, OSError):
                     continue
             if not loaded:
-                fonts[name] = ImageFont.load_default()
+                fonts[role] = ImageFont.load_default()
 
         return fonts
 
@@ -150,8 +147,10 @@ class ImageRenderer:
         img = Image.new('RGB', (self.display_width, self.display_height), (0, 0, 0))
         draw = ImageDraw.Draw(img)
 
-        font_sm = self.fonts['small']
-        font_md = self.fonts['medium']
+        font_name = self.fonts['name']
+        font_score = self.fonts['score']
+        font_header = self.fonts['header']
+        font_small = self.fonts['small']
 
         my_score = matchup_data.get('my_score', 0)
         opp_score = matchup_data.get('opp_score', 0)
@@ -165,40 +164,43 @@ class ImageRenderer:
         opp_color = self._get_score_color(opp_score, my_score)
 
         # Calculate row heights dynamically
-        sm_h = self._text_height("A", font_sm)
-        md_h = self._text_height("A", font_md)
+        header_h = self._text_height("A", font_header)
+        name_h = self._text_height("A", font_name)
+        score_h = self._text_height("0", font_score)
+        row_h = max(name_h, score_h)
+        small_h = self._text_height("0", font_small)
 
         # Vertical layout: header + my_team + opp_team + projections
         rows = []
         if self.show_header:
-            rows.append(('header', sm_h))
-        rows.append(('my_team', md_h))
-        rows.append(('opp_team', md_h))
+            rows.append(('header', header_h))
+        rows.append(('my_team', row_h))
+        rows.append(('opp_team', row_h))
         if self.show_projections and my_projected and opp_projected:
-            rows.append(('proj', sm_h))
+            rows.append(('proj', small_h))
 
         total_content_h = sum(h for _, h in rows)
         spacing = max(1, (self.display_height - total_content_h) // (len(rows) + 1))
         y = spacing
 
-        for row_type, row_h in rows:
+        for row_type, rh in rows:
             if row_type == 'header':
                 header_text = f"WEEK {week}"
-                x = self._center_x(header_text, font_sm)
-                self._draw_outlined_text(draw, (x, y), header_text, font_sm, self.color_header)
+                x = self._center_x(header_text, font_header)
+                self._draw_outlined_text(draw, (x, y), header_text, font_header, self.color_header)
 
             elif row_type == 'my_team':
-                self._draw_matchup_row(draw, y, my_team, my_score, my_color, font_md, font_sm)
+                self._draw_matchup_row(draw, y, my_team, my_score, my_color, font_name, font_score)
 
             elif row_type == 'opp_team':
-                self._draw_matchup_row(draw, y, opp_team, opp_score, opp_color, font_md, font_sm)
+                self._draw_matchup_row(draw, y, opp_team, opp_score, opp_color, font_name, font_score)
 
             elif row_type == 'proj':
                 proj_text = f"proj {my_projected:.0f}-{opp_projected:.0f}"
-                x = self._center_x(proj_text, font_sm)
-                draw.text((x, y), proj_text, fill=self.color_projection, font=font_sm)
+                x = self._center_x(proj_text, font_small)
+                draw.text((x, y), proj_text, fill=self.color_projection, font=font_small)
 
-            y += row_h + spacing
+            y += rh + spacing
 
         return img
 
@@ -209,20 +211,20 @@ class ImageRenderer:
         """Draw a single matchup row: team name left-aligned, score right-aligned."""
         margin = 2
         score_text = f"{score:.1f}"
-        score_w = self._text_width(score_text, name_font)
+        score_w = self._text_width(score_text, score_font)
 
         # Truncate team name to leave room for score
         available = self.display_width - score_w - margin * 3
         truncated = team_name
-        while self._text_width(truncated, score_font) > available and len(truncated) > 3:
+        while self._text_width(truncated, name_font) > available and len(truncated) > 3:
             truncated = truncated[:-1]
         if truncated != team_name:
             truncated = truncated.rstrip() + ".."
 
-        # Draw name (left) and score (right) on same row
-        self._draw_outlined_text(draw, (margin, y), truncated, score_font, color)
+        # Draw name (left, compact font) and score (right, bold font)
+        self._draw_outlined_text(draw, (margin, y), truncated, name_font, color)
         score_x = self.display_width - score_w - margin
-        self._draw_outlined_text(draw, (score_x, y), score_text, name_font, color)
+        self._draw_outlined_text(draw, (score_x, y), score_text, score_font, color)
 
     # ── Standings Ticker ────────────────────────────────────────────
 
@@ -238,7 +240,7 @@ class ImageRenderer:
         if not standings_data:
             return None
 
-        font_top = self.fonts['medium']
+        font_top = self.fonts['name']
         font_bot = self.fonts['small']
         top_h = self._text_height("A", font_top)
         bot_h = self._text_height("0", font_bot)
@@ -312,7 +314,7 @@ class ImageRenderer:
         if not roster_data:
             return None
 
-        font_top = self.fonts['medium']
+        font_top = self.fonts['name']
         font_bot = self.fonts['small']
         top_h = self._text_height("A", font_top)
         bot_h = self._text_height("0", font_bot)
@@ -405,20 +407,20 @@ class ImageRenderer:
         """Render a fallback message when no data is available."""
         img = Image.new('RGB', (self.display_width, self.display_height), (0, 0, 0))
         draw = ImageDraw.Draw(img)
-        font_md = self.fonts['medium']
-        font_sm = self.fonts['small']
+        font_title = self.fonts['score']
+        font_sub = self.fonts['small']
 
         line1 = "FANTASY"
         line2 = "NO DATA"
-        h1 = self._text_height(line1, font_md)
-        h2 = self._text_height(line2, font_sm)
+        h1 = self._text_height(line1, font_title)
+        h2 = self._text_height(line2, font_sub)
         gap = 3
         total = h1 + gap + h2
         y = (self.display_height - total) // 2
 
-        x1 = self._center_x(line1, font_md)
-        x2 = self._center_x(line2, font_sm)
-        self._draw_outlined_text(draw, (x1, y), line1, font_md, self.color_header)
-        draw.text((x2, y + h1 + gap), line2, fill=self.color_dim, font=font_sm)
+        x1 = self._center_x(line1, font_title)
+        x2 = self._center_x(line2, font_sub)
+        self._draw_outlined_text(draw, (x1, y), line1, font_title, self.color_header)
+        draw.text((x2, y + h1 + gap), line2, fill=self.color_dim, font=font_sub)
 
         return img
