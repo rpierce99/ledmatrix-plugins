@@ -168,8 +168,26 @@ class DataFetcher:
             self.logger.debug(f"Loaded mock data for {data_key}")
             return
 
+        # Try to load from cache first
+        cache_key = f"fantasy_{data_key}"
+        cached = self.cache_manager.get_cached_data_with_strategy(cache_key, 'fantasy') if hasattr(self.cache_manager, 'get_cached_data_with_strategy') else None
+
         league = self._get_espn_league(league_cfg)
         if not league:
+            # Fall back to cached data or mock
+            if cached:
+                self._league_data[data_key] = cached
+                self.logger.info(f"Using cached data for {data_key} (API unavailable)")
+            else:
+                self.logger.warning(f"No API connection and no cache for {data_key} — falling back to mock data")
+                self._league_data[data_key] = {
+                    'sport': sport,
+                    'matchup': MockDataProvider.get_matchup(sport),
+                    'standings': MockDataProvider.get_standings(sport),
+                    'roster': MockDataProvider.get_roster(sport),
+                    'team_name_override': league_cfg.get('team_name'),
+                    'last_fetch': time.time(),
+                }
             return
 
         try:
@@ -187,11 +205,14 @@ class DataFetcher:
             }
 
             # Cache the data
-            cache_key = f"fantasy_{data_key}"
             self.cache_manager.set(cache_key, self._league_data[data_key])
             self.logger.info(f"Fetched and cached data for {data_key}")
         except Exception as e:
             self.logger.error(f"Error fetching league data for {data_key}: {e}", exc_info=True)
+            # Fall back to cached data
+            if cached:
+                self._league_data[data_key] = cached
+                self.logger.info(f"Using cached data for {data_key} after fetch error")
 
     def _find_my_team(self, league):
         """Find the user's team in the league."""
