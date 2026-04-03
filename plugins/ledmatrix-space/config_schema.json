@@ -1,0 +1,234 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Space & Astronomy Tracker Configuration",
+  "description": "Configuration for the Space & Astronomy Tracker plugin",
+  "type": "object",
+  "properties": {
+    "enabled": {
+      "type": "boolean",
+      "default": false,
+      "description": "Enable or disable the Space & Astronomy Tracker plugin"
+    },
+    "latitude": {
+      "type": "number",
+      "title": "Step 1: Latitude",
+      "minimum": -90,
+      "maximum": 90,
+      "description": "Your latitude (e.g. 40.7128 for New York, -33.8688 for Sydney). Required for ISS passes, planet visibility, and constellations."
+    },
+    "longitude": {
+      "type": "number",
+      "title": "Step 1: Longitude",
+      "minimum": -180,
+      "maximum": 180,
+      "description": "Your longitude (e.g. -74.0060 for New York — negative values are west of Greenwich)."
+    },
+    "elevation_m": {
+      "type": "integer",
+      "title": "Step 1: Elevation (meters)",
+      "default": 0,
+      "minimum": 0,
+      "maximum": 9000,
+      "description": "Your elevation above sea level in meters. 0 is fine for most locations."
+    },
+    "display_modes": {
+      "type": "object",
+      "title": "Step 2: Choose What to Display",
+      "description": "Select which space views appear on your LED matrix",
+      "properties": {
+        "show_iss": {
+          "type": "boolean",
+          "default": true,
+          "description": "ISS pass countdown with overhead alerts and satellite icon"
+        },
+        "show_launches": {
+          "type": "boolean",
+          "default": true,
+          "description": "Next rocket launch countdown with mission details"
+        },
+        "show_night_sky": {
+          "type": "boolean",
+          "default": true,
+          "description": "Visible planets with icons and featured constellation line art"
+        },
+        "show_apod": {
+          "type": "boolean",
+          "default": false,
+          "description": "NASA Astronomy Picture of the Day (requires API key below)"
+        }
+      },
+      "additionalProperties": false,
+      "x-propertyOrder": ["show_iss", "show_launches", "show_night_sky", "show_apod"]
+    },
+    "nasa_api_key": {
+      "type": "string",
+      "title": "Step 3: NASA API Key (Optional)",
+      "x-secret": true,
+      "description": "Only needed for APOD. Get a free key at api.nasa.gov — or use DEMO_KEY for testing (30 requests/hour limit)."
+    },
+    "display_duration": {
+      "type": "number",
+      "default": 30,
+      "minimum": 10,
+      "maximum": 300,
+      "description": "Total display duration in seconds before moving to next plugin"
+    },
+    "mode_hold": {
+      "type": "number",
+      "default": 10,
+      "minimum": 3,
+      "maximum": 60,
+      "description": "Seconds to hold each static view (ISS countdown, launch countdown) before cycling"
+    },
+    "update_interval": {
+      "type": "integer",
+      "default": 600,
+      "minimum": 60,
+      "maximum": 7200,
+      "description": "How often to refresh data from APIs (seconds). Local computations (planets, ISS) update independently."
+    },
+    "scroll_speed": {
+      "type": "number",
+      "default": 1.0,
+      "minimum": 0.5,
+      "maximum": 5.0,
+      "description": "Scrolling speed for mission details and crew names"
+    },
+    "starfield": {
+      "type": "object",
+      "title": "Starfield Background",
+      "description": "Twinkling star background that appears on all screens",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show twinkling stars in the background"
+        },
+        "density": {
+          "type": "integer",
+          "default": 30,
+          "minimum": 5,
+          "maximum": 100,
+          "description": "Number of background stars (more = denser starfield)"
+        },
+        "twinkle_rate": {
+          "type": "integer",
+          "default": 3,
+          "minimum": 0,
+          "maximum": 10,
+          "description": "Stars that change brightness per frame (0 = static stars)"
+        }
+      },
+      "additionalProperties": false,
+      "x-propertyOrder": ["enabled", "density", "twinkle_rate"]
+    },
+    "iss": {
+      "type": "object",
+      "title": "ISS Settings",
+      "properties": {
+        "alert_enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Flash the display when ISS is passing overhead"
+        },
+        "min_elevation": {
+          "type": "integer",
+          "default": 20,
+          "minimum": 5,
+          "maximum": 90,
+          "description": "Minimum degrees above horizon for ISS pass alerts (higher = fewer but brighter passes)"
+        }
+      },
+      "additionalProperties": false,
+      "x-propertyOrder": ["alert_enabled", "min_elevation"]
+    },
+    "customization": {
+      "type": "object",
+      "title": "Colors & Appearance",
+      "description": "Customize the space-themed color palette",
+      "properties": {
+        "countdown_color": {
+          "type": "string",
+          "default": "#00CCFF",
+          "pattern": "^#[0-9A-Fa-f]{6}$",
+          "title": "Countdown",
+          "description": "ISS and launch countdown digits"
+        },
+        "alert_color": {
+          "type": "string",
+          "default": "#FFFFFF",
+          "pattern": "^#[0-9A-Fa-f]{6}$",
+          "title": "ISS Alert",
+          "description": "ISS overhead alert text"
+        },
+        "go_color": {
+          "type": "string",
+          "default": "#00FF00",
+          "pattern": "^#[0-9A-Fa-f]{6}$",
+          "title": "Launch GO",
+          "description": "Launch status: GO for launch"
+        },
+        "hold_color": {
+          "type": "string",
+          "default": "#FF4400",
+          "pattern": "^#[0-9A-Fa-f]{6}$",
+          "title": "Launch HOLD",
+          "description": "Launch status: HOLD"
+        },
+        "tbd_color": {
+          "type": "string",
+          "default": "#FFAA00",
+          "pattern": "^#[0-9A-Fa-f]{6}$",
+          "title": "Launch TBD",
+          "description": "Launch status: to be determined"
+        },
+        "header_color": {
+          "type": "string",
+          "default": "#4488FF",
+          "pattern": "^#[0-9A-Fa-f]{6}$",
+          "title": "Headers",
+          "description": "Section headers and labels"
+        },
+        "planet_label_color": {
+          "type": "string",
+          "default": "#AACCFF",
+          "pattern": "^#[0-9A-Fa-f]{6}$",
+          "title": "Planet Labels",
+          "description": "Planet names and rise times"
+        },
+        "constellation_line_color": {
+          "type": "string",
+          "default": "#223366",
+          "pattern": "^#[0-9A-Fa-f]{6}$",
+          "title": "Constellation Lines",
+          "description": "Lines connecting constellation stars"
+        },
+        "constellation_star_color": {
+          "type": "string",
+          "default": "#FFFFFF",
+          "pattern": "^#[0-9A-Fa-f]{6}$",
+          "title": "Constellation Stars",
+          "description": "Stars in constellation patterns"
+        }
+      },
+      "additionalProperties": false,
+      "x-propertyOrder": [
+        "countdown_color", "alert_color",
+        "go_color", "hold_color", "tbd_color",
+        "header_color", "planet_label_color",
+        "constellation_line_color", "constellation_star_color"
+      ]
+    }
+  },
+  "x-propertyOrder": [
+    "enabled",
+    "latitude", "longitude", "elevation_m",
+    "display_modes",
+    "nasa_api_key",
+    "display_duration", "mode_hold", "update_interval", "scroll_speed",
+    "starfield", "iss",
+    "customization"
+  ],
+  "required": ["enabled"],
+  "additionalProperties": false
+}
