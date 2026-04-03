@@ -1,0 +1,224 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ESPN Fantasy Sports Configuration",
+  "description": "Configuration for the ESPN Fantasy Sports plugin",
+  "type": "object",
+  "properties": {
+    "enabled": {
+      "type": "boolean",
+      "default": false,
+      "description": "Enable or disable the ESPN Fantasy Sports plugin"
+    },
+    "espn_s2": {
+      "type": "string",
+      "title": "Step 1: ESPN S2 Cookie",
+      "x-secret": true,
+      "description": "Your ESPN session cookie. To find it: (1) Log into fantasy.espn.com in Chrome. (2) Press F12 to open DevTools. (3) Go to Application tab > Storage > Cookies > espn.com. (4) Copy the value of 'espn_s2'. This is a long alphanumeric string."
+    },
+    "swid": {
+      "type": "string",
+      "title": "Step 1: ESPN SWID Cookie",
+      "x-secret": true,
+      "description": "Your ESPN subscriber ID. Found in the same Cookies section as espn_s2 — copy the full value of 'SWID' including the {curly braces}. Example format: {ABCD1234-EF56-7890-AB12-CD34EF567890}"
+    },
+    "leagues": {
+      "type": "array",
+      "title": "Step 2: Add Your Leagues",
+      "description": "Add one or more ESPN Fantasy leagues. Find your league ID in the URL bar when viewing your league (e.g., fantasy.espn.com/football/league?leagueId=12345 — the number after leagueId= is your ID).",
+      "default": [],
+      "items": {
+        "type": "object",
+        "properties": {
+          "sport": {
+            "type": "string",
+            "title": "Sport",
+            "enum": ["football", "basketball"],
+            "default": "football",
+            "description": "The fantasy sport for this league"
+          },
+          "league_id": {
+            "type": "integer",
+            "title": "League ID",
+            "description": "Your ESPN Fantasy league ID (the number from the URL)"
+          },
+          "team_name": {
+            "type": "string",
+            "title": "Display Name (Optional)",
+            "description": "Custom name for the LED display. Leave blank to use your ESPN team name."
+          },
+          "year": {
+            "type": "integer",
+            "title": "Season Year (Optional)",
+            "description": "The season year. Leave blank for the current season.",
+            "minimum": 2000,
+            "maximum": 2100
+          }
+        },
+        "required": ["sport", "league_id"],
+        "additionalProperties": false
+      }
+    },
+    "display_modes": {
+      "type": "object",
+      "title": "Step 3: Choose What to Display",
+      "description": "Select which views appear on your LED matrix",
+      "properties": {
+        "show_matchup": {
+          "type": "boolean",
+          "default": true,
+          "description": "Matchup scoreboard — your team vs opponent with live scores"
+        },
+        "show_standings": {
+          "type": "boolean",
+          "default": true,
+          "description": "League standings — scrolling ticker with team records"
+        },
+        "show_roster": {
+          "type": "boolean",
+          "default": false,
+          "description": "Roster breakdown — player-by-player scores with projections"
+        }
+      },
+      "additionalProperties": false
+    },
+    "display_duration": {
+      "type": "number",
+      "default": 30,
+      "minimum": 10,
+      "maximum": 300,
+      "description": "Total display duration in seconds before moving to next plugin"
+    },
+    "matchup_hold": {
+      "type": "number",
+      "default": 8,
+      "minimum": 3,
+      "maximum": 30,
+      "description": "How many seconds to hold the matchup scoreboard before switching to the next view"
+    },
+    "update_interval": {
+      "type": "integer",
+      "default": 300,
+      "minimum": 60,
+      "maximum": 3600,
+      "description": "How often to refresh data from ESPN (seconds). Smart polling overrides this during live games."
+    },
+    "smart_polling": {
+      "type": "object",
+      "title": "Smart Polling",
+      "description": "Automatically poll more frequently during active game windows and less often during idle times",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable smart polling (recommended — saves API calls)"
+        },
+        "live_interval": {
+          "type": "integer",
+          "default": 60,
+          "minimum": 30,
+          "maximum": 600,
+          "description": "Polling interval during active games (seconds)"
+        },
+        "idle_interval": {
+          "type": "integer",
+          "default": 3600,
+          "minimum": 300,
+          "maximum": 86400,
+          "description": "Polling interval outside of game windows (seconds)"
+        }
+      },
+      "additionalProperties": false
+    },
+    "layout": {
+      "type": "object",
+      "title": "Layout Options",
+      "description": "Control what information appears on the display",
+      "properties": {
+        "show_projections": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show projected scores on the matchup and roster views"
+        },
+        "show_header": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the week/period header on the matchup scoreboard"
+        },
+        "matchup_style": {
+          "type": "string",
+          "enum": ["split", "compact"],
+          "default": "split",
+          "description": "Matchup layout: 'split' shows each team on its own row, 'compact' shows a single-line score"
+        }
+      },
+      "additionalProperties": false
+    },
+    "scroll_speed": {
+      "type": "number",
+      "default": 1.0,
+      "minimum": 0.5,
+      "maximum": 5.0,
+      "description": "Scrolling speed in pixels per frame for standings and roster tickers"
+    },
+    "customization": {
+      "type": "object",
+      "title": "Colors & Appearance",
+      "description": "Customize the colors used on the LED display (hex format, e.g. #FF0000 for red)",
+      "properties": {
+        "winning_color": {
+          "type": "string",
+          "default": "#00FF00",
+          "title": "Winning",
+          "description": "Color when your team is winning"
+        },
+        "losing_color": {
+          "type": "string",
+          "default": "#FF0000",
+          "title": "Losing",
+          "description": "Color when your team is losing"
+        },
+        "tied_color": {
+          "type": "string",
+          "default": "#FFFFFF",
+          "title": "Tied",
+          "description": "Color when scores are tied"
+        },
+        "my_team_color": {
+          "type": "string",
+          "default": "#FFD700",
+          "title": "My Team Highlight",
+          "description": "Highlight color for your team in standings"
+        },
+        "projection_color": {
+          "type": "string",
+          "default": "#888888",
+          "title": "Projections",
+          "description": "Color for projected score text"
+        },
+        "header_color": {
+          "type": "string",
+          "default": "#4488FF",
+          "title": "Header",
+          "description": "Color for headers (week number, section labels)"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "x-propertyOrder": [
+    "enabled",
+    "espn_s2",
+    "swid",
+    "leagues",
+    "display_modes",
+    "display_duration",
+    "matchup_hold",
+    "update_interval",
+    "smart_polling",
+    "layout",
+    "scroll_speed",
+    "customization"
+  ],
+  "required": ["enabled"],
+  "additionalProperties": false
+}

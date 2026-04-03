@@ -1,0 +1,40 @@
+{
+  "id": "ledmatrix-fantasy",
+  "name": "ESPN Fantasy Sports",
+  "version": "1.0.0",
+  "description": "Display ESPN Fantasy league matchup scores, standings, and roster performance for football and basketball leagues on your LED matrix.",
+  "author": "ChuckBuilds",
+  "entry_point": "manager.py",
+  "class_name": "FantasyPlugin",
+  "api_version": "1.0.0",
+  "category": "sports",
+  "tags": [
+    "fantasy",
+    "espn",
+    "football",
+    "basketball",
+    "matchup",
+    "scores",
+    "standings",
+    "roster"
+  ],
+  "display_modes": [
+    "fantasy"
+  ],
+  "update_interval": 300,
+  "dependencies": [
+    "espn-api",
+    "pillow"
+  ],
+  "config_schema": "config_schema.json",
+  "requirements_file": "requirements.txt",
+  "min_ledmatrix_version": "2.0.0",
+  "versions": [
+    {
+      "version": "1.0.0",
+      "ledmatrix_min": "2.0.0",
+      "released": "2026-04-03"
+    }
+  ],
+  "last_updated": "2026-04-03"
+}
