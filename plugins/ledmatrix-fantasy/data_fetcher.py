@@ -111,10 +111,15 @@ class DataFetcher:
         self.swid = config.get('swid', '')
         self._leagues: Dict[str, Any] = {}
         self._league_data: Dict[str, Dict[str, Any]] = {}
-        self._use_mock = not (self.espn_s2 and self.swid)
+        self._has_credentials = bool(self.espn_s2 and self.swid)
+        self._has_leagues = bool(config.get('leagues'))
+        # Use mock data only when no leagues are configured at all
+        self._use_mock = not self._has_leagues
 
         if self._use_mock:
-            self.logger.info("No ESPN credentials configured — using mock data")
+            self.logger.info("No leagues configured — using mock data for preview")
+        elif not self._has_credentials:
+            self.logger.info("No ESPN credentials — will attempt public league access")
         else:
             self.logger.info("ESPN credentials found — will connect to live API")
 
@@ -137,12 +142,13 @@ class DataFetcher:
                 self.logger.error(f"Unsupported sport: {sport}")
                 return None
 
-            league = League(
-                league_id=league_id,
-                year=year,
-                espn_s2=self.espn_s2,
-                swid=self.swid,
-            )
+            # Public leagues work without credentials
+            kwargs = {'league_id': league_id, 'year': year}
+            if self._has_credentials:
+                kwargs['espn_s2'] = self.espn_s2
+                kwargs['swid'] = self.swid
+
+            league = League(**kwargs)
             self._leagues[cache_key] = league
             self.logger.info(f"Connected to ESPN {sport} league {league_id} ({year})")
             return league

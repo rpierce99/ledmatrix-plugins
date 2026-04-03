@@ -11,15 +11,15 @@
     },
     "espn_s2": {
       "type": "string",
-      "title": "Step 1: ESPN S2 Cookie",
+      "title": "Step 1: ESPN S2 Cookie (Private Leagues Only)",
       "x-secret": true,
-      "description": "Your ESPN session cookie. To find it: (1) Log into fantasy.espn.com in Chrome. (2) Press F12 to open DevTools. (3) Go to Application tab > Storage > Cookies > espn.com. (4) Copy the value of 'espn_s2'. This is a long alphanumeric string."
+      "description": "Required for private leagues only. Public leagues work without credentials — skip to Step 2. To find it: (1) Log into fantasy.espn.com in Chrome. (2) Press F12 to open DevTools. (3) Go to Application tab > Storage > Cookies > espn.com. (4) Copy the value of 'espn_s2'."
     },
     "swid": {
       "type": "string",
-      "title": "Step 1: ESPN SWID Cookie",
+      "title": "Step 1: ESPN SWID Cookie (Private Leagues Only)",
       "x-secret": true,
-      "description": "Your ESPN subscriber ID. Found in the same Cookies section as espn_s2 — copy the full value of 'SWID' including the {curly braces}. Example format: {ABCD1234-EF56-7890-AB12-CD34EF567890}"
+      "description": "Required for private leagues only. Found in the same Cookies section as espn_s2 — copy the full value of 'SWID' including the {curly braces}. Example: {ABCD1234-EF56-7890-AB12-CD34EF567890}"
     },
     "leagues": {
       "type": "array",
@@ -55,7 +55,8 @@
           }
         },
         "required": ["sport", "league_id"],
-        "additionalProperties": false
+        "additionalProperties": false,
+        "x-propertyOrder": ["sport", "league_id", "team_name", "year"]
       }
     },
     "display_modes": {
@@ -79,7 +80,8 @@
           "description": "Roster breakdown — player-by-player scores with projections"
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "x-propertyOrder": ["show_matchup", "show_standings", "show_roster"]
     },
     "display_duration": {
       "type": "number",
@@ -151,7 +153,8 @@
           "description": "Matchup layout: 'split' shows each team on its own row, 'compact' shows a single-line score"
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "x-propertyOrder": ["show_projections", "show_header", "matchup_style"]
     },
     "scroll_speed": {
       "type": "number",
@@ -202,7 +205,8 @@
           "description": "Color for headers (week number, section labels)"
         }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "x-propertyOrder": ["winning_color", "losing_color", "tied_color", "my_team_color", "projection_color", "header_color"]
     }
   },
   "x-propertyOrder": [

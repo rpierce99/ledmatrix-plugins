@@ -159,6 +159,7 @@ class ImageRenderer:
         week = matchup_data.get('week', '?')
         my_team = matchup_data.get('my_team', 'MY TEAM')
         opp_team = matchup_data.get('opp_team', 'OPPONENT')
+        league_name = matchup_data.get('league_name', '')
 
         my_color = self._get_score_color(my_score, opp_score)
         opp_color = self._get_score_color(opp_score, my_score)
@@ -170,11 +171,13 @@ class ImageRenderer:
         row_h = max(name_h, score_h)
         small_h = self._text_height("0", font_small)
 
-        # Vertical layout: header + my_team + opp_team + projections
+        # Vertical layout: header + my_team + separator + opp_team + projections
+        sep_h = 2  # thin separator line
         rows = []
         if self.show_header:
             rows.append(('header', header_h))
         rows.append(('my_team', row_h))
+        rows.append(('separator', sep_h))
         rows.append(('opp_team', row_h))
         if self.show_projections and my_projected and opp_projected:
             rows.append(('proj', small_h))
@@ -185,12 +188,25 @@ class ImageRenderer:
 
         for row_type, rh in rows:
             if row_type == 'header':
-                header_text = f"WEEK {week}"
+                # Show league name if available, otherwise just week
+                if league_name:
+                    header_text = f"WK{week} {league_name}"
+                    # Truncate league name if too wide
+                    while self._text_width(header_text, font_header) > self.display_width - 4 and len(header_text) > 6:
+                        header_text = header_text[:-1]
+                else:
+                    header_text = f"WEEK {week}"
                 x = self._center_x(header_text, font_header)
                 self._draw_outlined_text(draw, (x, y), header_text, font_header, self.color_header)
 
             elif row_type == 'my_team':
                 self._draw_matchup_row(draw, y, my_team, my_score, my_color, font_name, font_score)
+
+            elif row_type == 'separator':
+                # Thin dotted line between teams
+                sep_y = y + rh // 2
+                for sx in range(2, self.display_width - 2, 4):
+                    draw.point((sx, sep_y), fill=self.color_separator)
 
             elif row_type == 'opp_team':
                 self._draw_matchup_row(draw, y, opp_team, opp_score, opp_color, font_name, font_score)
@@ -269,6 +285,7 @@ class ImageRenderer:
             losses = team.get('losses', 0)
             ties = team.get('ties', 0)
 
+            rank_text = f"#{rank} "
             top_text = f"#{rank} {name}"
             record = f"{wins}-{losses}-{ties}" if ties > 0 else f"{wins}-{losses}"
             bot_text = f"({record})"
@@ -279,7 +296,8 @@ class ImageRenderer:
             is_mine = team.get('is_my_team', False)
 
             entries.append({
-                'top_text': top_text, 'bot_text': bot_text,
+                'top_text': top_text, 'rank_text': rank_text, 'name_text': name,
+                'bot_text': bot_text,
                 'top_w': top_w, 'bot_w': bot_w, 'width': width,
                 'is_mine': is_mine,
             })
@@ -291,19 +309,30 @@ class ImageRenderer:
         draw = ImageDraw.Draw(img)
 
         x = 0
-        for entry in entries:
-            color = self.color_my_team if entry['is_mine'] else self.color_white
-            dim_color = self.color_my_team if entry['is_mine'] else self.color_dim
+        for i, entry in enumerate(entries):
+            is_mine = entry['is_mine']
+            name_color = self.color_my_team if is_mine else self.color_white
+            rank_color = self.color_header if not is_mine else self.color_my_team
+            dim_color = self.color_my_team if is_mine else self.color_dim
 
-            self._draw_outlined_text(draw, (x, y_top), entry['top_text'], font_top, color)
+            # Draw rank in header color, name in white/gold
+            rank_text = entry.get('rank_text', '')
+            name_text = entry.get('name_text', entry['top_text'])
+            if rank_text:
+                self._draw_outlined_text(draw, (x, y_top), rank_text, font_top, rank_color)
+                rank_w = self._text_width(rank_text, font_top)
+                self._draw_outlined_text(draw, (x + rank_w, y_top), name_text, font_top, name_color)
+            else:
+                self._draw_outlined_text(draw, (x, y_top), entry['top_text'], font_top, name_color)
+
             draw.text((x, y_bot), entry['bot_text'], fill=dim_color, font=font_bot)
             x += entry['width'] + entry_gap
 
-            # Separator dot between entries
-            if x < total_width - entry_gap:
-                dot_y = self.display_height // 2 - 1
-                draw.rectangle([x - entry_gap // 2 - 1, dot_y, x - entry_gap // 2 + 1, dot_y + 2],
-                               fill=self.color_separator)
+            # Vertical separator line between entries
+            if i < len(entries) - 1 and x < total_width - entry_gap:
+                sep_x = x - entry_gap // 2
+                draw.line([(sep_x, y_top + 2), (sep_x, y_bot + bot_h - 1)],
+                          fill=self.color_separator)
 
         return img
 
