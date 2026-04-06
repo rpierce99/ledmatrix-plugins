@@ -25,11 +25,11 @@ class Lacrosse(SportsCore):
 
     def _extract_game_details(self, game_event: Dict) -> Optional[Dict]:
         """Extract relevant game details from ESPN Lacrosse API response."""
-        details, home_team, away_team, status, situation = (
+        details, home_team, away_team, status, _situation = (
             self._extract_game_details_common(game_event)
         )
         if details is None or home_team is None or away_team is None or status is None:
-            return
+            return None
         try:
             competition = game_event["competitions"][0]
             status = competition["status"]
@@ -101,6 +101,24 @@ class Lacrosse(SportsCore):
                 exc_info=True,
             )
             return None
+
+    def _get_team_display_text(self, abbr: str, record: str) -> str:
+        """Pick the short text shown under a team logo.
+
+        When `show_ranking` is enabled, the poll rank (if any) wins and the
+        record is hidden. When only `show_records` is enabled, the W-L record
+        is shown. Unranked teams get an empty string under ranking-only mode.
+        """
+        if not abbr:
+            return ""
+        if self.show_ranking:
+            rank = self._team_rankings_cache.get(abbr, 0)
+            if rank > 0:
+                return f"#{rank}"
+            return ""
+        if self.show_records:
+            return record or ""
+        return ""
 
 
 class LacrosseLive(Lacrosse, SportsLive):
@@ -227,7 +245,7 @@ class LacrosseLive(Lacrosse, SportsLive):
                 )
 
             # Draw odds if available
-            if "odds" in game and game["odds"]:
+            if game.get("odds"):
                 self._draw_dynamic_odds(
                     draw_overlay, game["odds"], self.display_width, self.display_height
                 )
@@ -246,50 +264,32 @@ class LacrosseLive(Lacrosse, SportsLive):
                 record_height = record_bbox[3] - record_bbox[1]
                 record_y = self.display_height - record_height - 1
 
-                if away_abbr:
-                    if self.show_ranking and self.show_records:
-                        away_rank = self._team_rankings_cache.get(away_abbr, 0)
-                        away_text = f"#{away_rank}" if away_rank > 0 else ""
-                    elif self.show_ranking:
-                        away_rank = self._team_rankings_cache.get(away_abbr, 0)
-                        away_text = f"#{away_rank}" if away_rank > 0 else ""
-                    elif self.show_records:
-                        away_text = game.get("away_record", "")
-                    else:
-                        away_text = ""
+                away_text = self._get_team_display_text(
+                    away_abbr, game.get("away_record", "")
+                )
+                if away_text:
+                    self._draw_text_with_outline(
+                        draw_overlay,
+                        away_text,
+                        (3, record_y),
+                        record_font,
+                    )
 
-                    if away_text:
-                        self._draw_text_with_outline(
-                            draw_overlay,
-                            away_text,
-                            (3, record_y),
-                            record_font,
-                        )
-
-                if home_abbr:
-                    if self.show_ranking and self.show_records:
-                        home_rank = self._team_rankings_cache.get(home_abbr, 0)
-                        home_text = f"#{home_rank}" if home_rank > 0 else ""
-                    elif self.show_ranking:
-                        home_rank = self._team_rankings_cache.get(home_abbr, 0)
-                        home_text = f"#{home_rank}" if home_rank > 0 else ""
-                    elif self.show_records:
-                        home_text = game.get("home_record", "")
-                    else:
-                        home_text = ""
-
-                    if home_text:
-                        home_record_bbox = draw_overlay.textbbox(
-                            (0, 0), home_text, font=record_font
-                        )
-                        home_record_width = home_record_bbox[2] - home_record_bbox[0]
-                        home_record_x = self.display_width - home_record_width - 3
-                        self._draw_text_with_outline(
-                            draw_overlay,
-                            home_text,
-                            (home_record_x, record_y),
-                            record_font,
-                        )
+                home_text = self._get_team_display_text(
+                    home_abbr, game.get("home_record", "")
+                )
+                if home_text:
+                    home_record_bbox = draw_overlay.textbbox(
+                        (0, 0), home_text, font=record_font
+                    )
+                    home_record_width = home_record_bbox[2] - home_record_bbox[0]
+                    home_record_x = self.display_width - home_record_width - 3
+                    self._draw_text_with_outline(
+                        draw_overlay,
+                        home_text,
+                        (home_record_x, record_y),
+                        record_font,
+                    )
 
             # Composite text overlay onto main image
             main_img = Image.alpha_composite(main_img, overlay)

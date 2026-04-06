@@ -5,22 +5,24 @@ Simplified DynamicTeamResolver for plugin use
 import logging
 import time
 import requests
-from typing import Dict, List, Set, Optional, Any
-from datetime import datetime, timezone
+from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
 class DynamicTeamResolver:
     """
     Simplified resolver for dynamic team names to actual team abbreviations.
-    
+
     This class handles special team names that represent dynamic groups
     like AP Top 25 rankings, which update automatically.
     """
-    
-    # Cache for rankings data
-    _rankings_cache: Dict[str, List[str]] = {}
-    _cache_timestamp: float = 0
+
+    # Cache for rankings data. Each entry is keyed by (sport, token) and
+    # carries its own fetched-at timestamp so different tokens age
+    # independently. Historically this was a single shared timestamp, which
+    # meant fetching one token could extend the apparent freshness of
+    # unrelated ones.
+    _rankings_cache: Dict[str, Tuple[List[str], float]] = {}
     _cache_duration: int = 3600  # 1 hour cache
     
     # Supported dynamic team patterns.
@@ -102,21 +104,21 @@ class DynamicTeamResolver:
             pattern_sport = pattern_config['sport']
             limit = pattern_config['limit']
             
-            # Check cache first
+            # Check cache first (per-token TTL)
             cache_key = f"{pattern_sport}_{dynamic_team}"
-            if self._is_cache_valid():
-                cached_teams = self._rankings_cache.get(cache_key)
-                if cached_teams:
+            entry = self._rankings_cache.get(cache_key)
+            if entry is not None:
+                cached_teams, cached_at = entry
+                if cached_teams and (time.time() - cached_at) < self._cache_duration:
                     self.logger.debug(f"Using cached {dynamic_team} teams")
                     return cached_teams[:limit]
-            
+
             # Fetch fresh rankings
             rankings = self._fetch_rankings(pattern_sport)
             if rankings:
-                # Cache the results
-                self._rankings_cache[cache_key] = rankings
-                self._cache_timestamp = time.time()
-                
+                # Cache the results with this token's own timestamp
+                self._rankings_cache[cache_key] = (rankings, time.time())
+
                 self.logger.info(f"Fetched {len(rankings)} teams for {dynamic_team}")
                 return rankings[:limit]
             else:
@@ -191,11 +193,7 @@ class DynamicTeamResolver:
         except Exception as e:
             self.logger.debug(f"Error fetching rankings for {sport}: {e}")
             return []
-    
-    def _is_cache_valid(self) -> bool:
-        """Check if the rankings cache is still valid."""
-        return time.time() - self._cache_timestamp < self._cache_duration
-    
+
     def _is_potential_dynamic_team(self, team: str) -> bool:
         """Check if a team name looks like a dynamic team pattern."""
         return (

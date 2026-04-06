@@ -50,10 +50,11 @@ class ScrollDisplay:
     - Logs FPS and game count during scrolling
     """
 
-    # Paths to league separator icons
+    # Paths to league separator icons. Lacrosse uses a single NCAA lacrosse
+    # logo for both men's and women's since ESPN does not ship separate
+    # gendered marks for the sport.
     NCAA_SEPARATOR_ICON = "assets/sports/ncaa_logos/NCAA.png"
-    NCAAM_LACROSSE_SEPARATOR_ICON = "assets/sports/ncaa_logos/ncaa_lacrosse.png"
-    NCAAW_LACROSSE_SEPARATOR_ICON = "assets/sports/ncaa_logos/ncaa_lacrosse.png"
+    NCAA_LACROSSE_SEPARATOR_ICON = "assets/sports/ncaa_logos/ncaa_lacrosse.png"
 
     def __init__(
         self,
@@ -204,8 +205,8 @@ class ScrollDisplay:
 
         # Load NCAA icon (try sport-specific first, then generic)
         ncaa_icon_paths = [
-            (self.NCAAM_LACROSSE_SEPARATOR_ICON, ["ncaam_lacrosse", "ncaa_mens"]),
-            (self.NCAAW_LACROSSE_SEPARATOR_ICON, ["ncaaw_lacrosse", "ncaa_womens"]),
+            (self.NCAA_LACROSSE_SEPARATOR_ICON, ["ncaam_lacrosse", "ncaa_mens",
+                                                  "ncaaw_lacrosse", "ncaa_womens"]),
             (self.NCAA_SEPARATOR_ICON, ["ncaa"]),
         ]
 

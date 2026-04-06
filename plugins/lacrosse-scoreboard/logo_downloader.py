@@ -61,7 +61,7 @@ class LogoDownloader:
             
         return variations
 
-def download_missing_logo(sport_key: str, team_id: str, team_abbr: str, logo_path: Path, logo_url: str = None) -> bool:
+def download_missing_logo(sport_key: str, team_id: str, team_abbr: str, logo_path: Path, logo_url: Optional[str] = None) -> bool:
     """
     Download missing logo for a team.
     
@@ -105,10 +105,12 @@ def create_placeholder_logo(team_abbr: str, logo_path: Path) -> None:
         img = Image.new('RGBA', (64, 64), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
         
-        # Try to load a font
+        # Try to load a font, falling back to PIL's built-in default if the
+        # bundled font is missing or cannot be read.
         try:
             font = ImageFont.truetype("assets/fonts/PressStart2P-Regular.ttf", 12)
-        except:
+        except (OSError, IOError) as e:
+            logger.debug(f"Placeholder font unavailable ({e}); using PIL default")
             font = ImageFont.load_default()
         
         # Draw team abbreviation

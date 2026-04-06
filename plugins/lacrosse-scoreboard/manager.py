@@ -694,9 +694,9 @@ class LacrosseScoreboardPlugin(BasePlugin if BasePlugin else object):
                     return bool(display_modes[key])
             return default
 
-        live_flag = resolve_mode_flag("live", "show_live", "lacrosse_live")
-        recent_flag = resolve_mode_flag("recent", "show_recent", "lacrosse_recent")
-        upcoming_flag = resolve_mode_flag("upcoming", "show_upcoming", "lacrosse_upcoming")
+        live_flag = resolve_mode_flag("live", "show_live")
+        recent_flag = resolve_mode_flag("recent", "show_recent")
+        upcoming_flag = resolve_mode_flag("upcoming", "show_upcoming")
 
         def resolve_value(nested_path: list, flat_keys: list, default):
             """Resolve value from nested structure or fallback to flat structure."""
@@ -769,9 +769,9 @@ class LacrosseScoreboardPlugin(BasePlugin if BasePlugin else object):
                 "enabled": league_config.get("enabled", False),
                 "favorite_teams": favorite_teams,
                 "display_modes": {
-                    "lacrosse_live": live_flag,
-                    "lacrosse_recent": recent_flag,
-                    "lacrosse_upcoming": upcoming_flag,
+                    "live": live_flag,
+                    "recent": recent_flag,
+                    "upcoming": upcoming_flag,
                 },
                 "recent_games_to_show": recent_games_to_show,
                 "upcoming_games_to_show": upcoming_games_to_show,

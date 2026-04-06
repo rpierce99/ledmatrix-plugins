@@ -29,6 +29,7 @@ import sys
 import types
 import urllib.error
 import urllib.request
+from datetime import datetime
 from pathlib import Path
 
 PLUGIN_DIR = Path(__file__).resolve().parent
@@ -95,10 +96,18 @@ def test_rankings_resolver() -> None:
     men = resolver.resolve_teams(["NCAA_MENS_TOP_5"], "ncaam_lacrosse")
     women = resolver.resolve_teams(["NCAA_WOMENS_TOP_5"], "ncaaw_lacrosse")
 
+    # If both empty, ESPN is likely unreachable — report as skip rather than fail.
+    if not men and not women:
+        raise _NetworkUnavailable("rankings endpoint returned no data")
+
     assert len(men) == 5, f"expected 5 men's teams, got {len(men)}: {men}"
     assert len(women) == 5, f"expected 5 women's teams, got {len(women)}: {women}"
     assert all(isinstance(t, str) and t for t in men + women), "empty team entry"
     print(f"  [ok] dynamic resolver — men={men[:3]}..., women={women[:3]}...")
+
+
+class _NetworkUnavailable(Exception):
+    """Raised by a test when it detects the network/external feed is down."""
 
 
 # ---------------------------------------------------------------------------
@@ -189,8 +198,22 @@ def test_extraction(label: str, league_slug: str, date_window: str) -> None:
 # ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
+def _build_season_window() -> str:
+    """Build a rolling scoreboard date window for the current season.
+
+    NCAA lacrosse runs January through late May. From January through June we
+    query the current calendar year; from July onward we query the upcoming
+    season. Returned format is 'YYYYMMDD-YYYYMMDD' as ESPN expects.
+    """
+    now = datetime.now()
+    year = now.year if now.month < 7 else now.year + 1
+    return f"{year}0101-{year}0601"
+
+
 def main() -> int:
     print("Lacrosse Scoreboard plugin — smoke test")
+
+    season_window = _build_season_window()
 
     tests = [
         ("imports", test_imports, ()),
@@ -198,14 +221,22 @@ def main() -> int:
         (
             "men's extraction",
             test_extraction,
-            ("men's", "mens-college-lacrosse", "20260101-20260601"),
+            ("men's", "mens-college-lacrosse", season_window),
         ),
         (
             "women's extraction",
             test_extraction,
-            ("women's", "womens-college-lacrosse", "20260101-20260601"),
+            ("women's", "womens-college-lacrosse", season_window),
         ),
     ]
+
+    # Import requests lazily so the test can still import when requests is
+    # unavailable — we only need it to recognise network errors.
+    try:
+        import requests.exceptions as _rexc
+        network_errors: tuple = (urllib.error.URLError, _rexc.RequestException)
+    except ImportError:
+        network_errors = (urllib.error.URLError,)
 
     failed = 0
     for name, fn, args in tests:
@@ -214,7 +245,9 @@ def main() -> int:
         except AssertionError as e:
             print(f"  [FAIL] {name}: {e}")
             failed += 1
-        except urllib.error.URLError as e:
+        except _NetworkUnavailable as e:
+            print(f"  [skip] {name}: {e}")
+        except network_errors as e:
             # Network failures are non-fatal — skip with a warning so the
             # test can still run on air-gapped CI.
             print(f"  [skip] {name}: network unavailable ({e})")

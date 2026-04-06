@@ -17,15 +17,6 @@ ESPN_NCAAMLAX_SCOREBOARD_URL = (
 class BaseNCAAMLacrosseManager(Lacrosse):
     """Base class for NCAA Men's Lacrosse managers with common functionality."""
 
-    # Class variables for warning tracking
-    _no_data_warning_logged = False
-    _last_warning_time = 0
-    _warning_cooldown = 60  # Only log warnings once per minute
-    _shared_data = None
-    _last_shared_update = 0
-    _processed_games_cache = {}  # Cache for processed game data
-    _processed_games_timestamp = 0
-
     def __init__(
         self,
         config: Dict[str, Any],
@@ -41,11 +32,14 @@ class BaseNCAAMLacrosseManager(Lacrosse):
             sport_key="ncaam_lacrosse",
         )
 
-        # Check display modes to determine what data to fetch
+        # Check display modes to determine what data to fetch.
+        # Keys match the adapter output in manager.py::_adapt_config_for_manager
+        # and the plain "live"/"recent"/"upcoming" names used in
+        # config_schema.json.
         display_modes = self.mode_config.get("display_modes", {})
-        self.recent_enabled = display_modes.get("lacrosse_recent", False)
-        self.upcoming_enabled = display_modes.get("lacrosse_upcoming", False)
-        self.live_enabled = display_modes.get("lacrosse_live", False)
+        self.recent_enabled = display_modes.get("recent", False)
+        self.upcoming_enabled = display_modes.get("upcoming", False)
+        self.live_enabled = display_modes.get("live", False)
         self.league = "mens-college-lacrosse"
 
         self.logger.info(
@@ -98,8 +92,9 @@ class BaseNCAAMLacrosseManager(Lacrosse):
         def fetch_callback(result):
             """Callback when background fetch completes."""
             if result.success:
+                events = (getattr(result, "data", None) or {}).get("events") or []
                 self.logger.info(
-                    f"Background fetch completed for {season_year}: {len(result.data.get('events'))} events"
+                    f"Background fetch completed for {season_year}: {len(events)} events"
                 )
             else:
                 self.logger.error(

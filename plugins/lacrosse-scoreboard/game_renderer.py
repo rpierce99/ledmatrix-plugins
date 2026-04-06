@@ -122,13 +122,18 @@ class GameRenderer:
 
         try:
             if os.path.exists(font_path):
-                if font_path.lower().endswith('.ttf'):
+                if font_path.lower().endswith(('.ttf', '.otf')):
                     return ImageFont.truetype(font_path, font_size)
                 elif font_path.lower().endswith('.bdf'):
+                    # ImageFont.truetype does not support bitmap (BDF) fonts.
+                    # Use ImageFont.load for BDFs; note that BDFs are bitmap
+                    # fonts and ignore font_size — the glyph size is baked in.
                     try:
-                        return ImageFont.truetype(font_path, font_size)
-                    except Exception:
-                        self.logger.warning(f"Could not load BDF font {font_name}, using default")
+                        return ImageFont.load(font_path)
+                    except Exception as e:
+                        self.logger.warning(
+                            f"Could not load BDF font {font_name}: {e}; using default"
+                        )
         except Exception as e:
             self.logger.error(f"Error loading font {font_name}: {e}")
 
