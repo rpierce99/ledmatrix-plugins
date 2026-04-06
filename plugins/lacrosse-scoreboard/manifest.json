@@ -1,0 +1,65 @@
+{
+  "id": "lacrosse-scoreboard",
+  "name": "Lacrosse Scoreboard",
+  "version": "1.0.1",
+  "author": "ChuckBuilds",
+  "description": "Live, recent, and upcoming NCAA men's and women's lacrosse games with real-time scores and schedules",
+  "homepage": "https://github.com/ChuckBuilds/ledmatrix-plugins/tree/main/plugins/lacrosse-scoreboard",
+  "entry_point": "manager.py",
+  "class_name": "LacrosseScoreboardPlugin",
+  "category": "sports",
+  "tags": [
+    "lacrosse",
+    "ncaa",
+    "sports",
+    "scoreboard",
+    "live-scores"
+  ],
+  "icon": "fas fa-baseball-ball",
+  "compatible_versions": [
+    ">=2.0.0"
+  ],
+  "ledmatrix_version": "2.0.0",
+  "requires": {
+    "python": ">=3.9",
+    "display_size": {
+      "min_width": 64,
+      "min_height": 32
+    }
+  },
+  "config_schema": "config_schema.json",
+  "assets": {
+    "logos": "Uses shared LEDMatrix assets/sports/ncaa_logos directory"
+  },
+  "update_interval": 60,
+  "default_duration": 15,
+  "display_modes": [
+    "ncaa_mens_recent",
+    "ncaa_mens_upcoming",
+    "ncaa_mens_live",
+    "ncaa_womens_recent",
+    "ncaa_womens_upcoming",
+    "ncaa_womens_live"
+  ],
+  "api_requirements": [
+    {
+      "name": "ESPN API",
+      "required": true,
+      "description": "ESPN public API for NCAA lacrosse scores and schedules",
+      "url": "https://site.api.espn.com/apis/site/v2/sports/lacrosse/",
+      "rate_limit": "No official rate limit, but please use responsibly"
+    }
+  ],
+  "versions": [
+    {
+      "version": "1.0.1",
+      "ledmatrix_min": "2.0.0",
+      "released": "2026-04-06"
+    }
+  ],
+  "last_updated": "2026-04-06",
+  "stars": 0,
+  "downloads": 0,
+  "verified": true,
+  "screenshot": ""
+}
