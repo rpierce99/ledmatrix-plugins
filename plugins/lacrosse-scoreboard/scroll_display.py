@@ -203,11 +203,16 @@ class ScrollDisplay:
         """Load and resize league separator icons."""
         separator_height = self.display_height - 4  # Leave some padding
 
-        # Load NCAA icon (try sport-specific first, then generic)
+        # Load NCAA icon (try sport-specific first, then generic). Both
+        # entries register under the lacrosse league keys so the generic
+        # NCAA.png acts as a real fallback when ncaa_lacrosse.png is missing —
+        # otherwise separator lookups for "ncaam_lacrosse" / "ncaaw_lacrosse"
+        # would silently return None.
+        lacrosse_keys = ["ncaam_lacrosse", "ncaa_mens",
+                         "ncaaw_lacrosse", "ncaa_womens"]
         ncaa_icon_paths = [
-            (self.NCAA_LACROSSE_SEPARATOR_ICON, ["ncaam_lacrosse", "ncaa_mens",
-                                                  "ncaaw_lacrosse", "ncaa_womens"]),
-            (self.NCAA_SEPARATOR_ICON, ["ncaa"]),
+            (self.NCAA_LACROSSE_SEPARATOR_ICON, lacrosse_keys),
+            (self.NCAA_SEPARATOR_ICON, [*lacrosse_keys, "ncaa"]),
         ]
 
         for icon_path, league_keys in ncaa_icon_paths:
@@ -224,8 +229,11 @@ class ScrollDisplay:
                     aspect = ncaa_icon.width / ncaa_icon.height
                     new_width = int(separator_height * aspect)
                     ncaa_icon = ncaa_icon.resize((new_width, separator_height), resample=RESAMPLE_FILTER)
+                    # Only populate keys that haven't been set yet so the
+                    # sport-specific icon (iterated first) always wins over
+                    # the generic NCAA fallback.
                     for key in league_keys:
-                        self._separator_icons[key] = ncaa_icon
+                        self._separator_icons.setdefault(key, ncaa_icon)
                     self.logger.debug(f"Loaded NCAA separator icon from {icon_path}: {new_width}x{separator_height}")
                 except Exception:
                     self.logger.exception(f"Error loading NCAA separator icon from {icon_path}")

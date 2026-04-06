@@ -64,21 +64,28 @@ class LogoDownloader:
 def download_missing_logo(sport_key: str, team_id: str, team_abbr: str, logo_path: Path, logo_url: Optional[str] = None) -> bool:
     """
     Download missing logo for a team.
-    
+
+    A placeholder logo is always written to disk as a fallback so the caller
+    can safely open the file afterwards. The return value reflects whether
+    the *real* logo was downloaded from the remote URL — callers that care
+    about distinguishing a real logo from a placeholder should inspect the
+    return value.
+
     Args:
         sport_key: Sport key (e.g., 'nfl', 'ncaa_fb')
         team_id: Team ID
         team_abbr: Team abbreviation
         logo_path: Path where logo should be saved
         logo_url: Optional logo URL
-        
+
     Returns:
-        True if logo was downloaded successfully, False otherwise
+        True if the real logo was downloaded successfully from logo_url,
+        False if a placeholder was created as a fallback or the download failed.
     """
     try:
         # Create directory if it doesn't exist
         logo_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         # If we have a logo URL, try to download it
         if logo_url:
             response = requests.get(logo_url, timeout=30)
@@ -87,11 +94,11 @@ def download_missing_logo(sport_key: str, team_id: str, team_abbr: str, logo_pat
                     f.write(response.content)
                 logger.info(f"Downloaded logo for {team_abbr} from {logo_url}")
                 return True
-        
+
         # If no URL or download failed, create a placeholder
         create_placeholder_logo(team_abbr, logo_path)
-        return True
-        
+        return False
+
     except Exception as e:
         logger.error(f"Failed to download logo for {team_abbr}: {e}")
         # Create placeholder as fallback

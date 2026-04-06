@@ -314,6 +314,10 @@ class GameRenderer:
             status['period'] = normalized.get('period', '')
         if 'clock' in normalized and not status.get('clock'):
             status['clock'] = normalized.get('clock', '')
+        # Mirror into display_clock so the live renderer (which reads
+        # status['display_clock']) sees flat-payload clocks correctly.
+        if status.get('clock') and not status.get('display_clock'):
+            status['display_clock'] = status['clock']
         if 'state' in normalized and not status.get('state'):
             status['state'] = normalized.get('state', '')
         normalized['status'] = status
@@ -428,7 +432,9 @@ class GameRenderer:
         # Period and Clock (Top center)
         status = game.get('status', {})
         period = status.get('period', 0)
-        clock = status.get('display_clock', '')
+        # Prefer display_clock (nested ESPN payload), fall back to clock
+        # (flat payload normalized in _normalize_game_payload).
+        clock = status.get('display_clock') or status.get('clock', '')
         state = status.get('state', '')
 
         if state == 'in':
@@ -486,11 +492,10 @@ class GameRenderer:
             start_time = game.get("start_time", "")
             if start_time:
                 try:
-                    from datetime import datetime
-                    import pytz
+                    from datetime import datetime, timezone
 
                     dt = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
-                    local_dt = dt.astimezone(pytz.utc)  # Use UTC for now
+                    local_dt = dt.astimezone(timezone.utc)  # Use UTC for now
 
                     game_date = local_dt.strftime("%b %d")
 
