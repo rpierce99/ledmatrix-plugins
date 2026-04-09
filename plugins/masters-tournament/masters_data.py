@@ -41,8 +41,6 @@ class MastersDataSource:
         self.config = config
         self.mock_mode = config.get("mock_data", False)
         self.logger = logging.getLogger(__name__)
-        # Last-seen raw leaderboard payload so schedule/meta can piggyback without re-fetching.
-        self._last_raw_leaderboard: Optional[Dict] = None
 
     # ── Leaderboard ──────────────────────────────────────────────
 
@@ -67,7 +65,6 @@ class MastersDataSource:
             )
             response.raise_for_status()
             data = response.json()
-            self._last_raw_leaderboard = data
 
             # Parse and cache tournament meta alongside the leaderboard so
             # countdown / phase / TTL all flow from one HTTP call.
@@ -79,10 +76,23 @@ class MastersDataSource:
                 self.logger.info("Masters not currently in ESPN API, using mock data")
                 mock = self._generate_mock_leaderboard()
                 self.cache_manager.set(cache_key, mock, ttl=3600)
+                # Clear any stale tee-time cache so we don't surface tee times
+                # from a previous tournament / non-Masters event.
+                self.cache_manager.set(CACHE_KEY_SCHEDULE, [], ttl=3600)
                 return mock
 
             parsed = self._parse_leaderboard(data)
             self.cache_manager.set(cache_key, parsed, ttl=ttl)
+
+            # Derive tee times from the same payload and cache them directly,
+            # so fetch_schedule() is a pure cache read and never has to
+            # re-parse stale in-memory state.
+            try:
+                tee_times = self._parse_tee_times_from_leaderboard(data)
+                self.cache_manager.set(CACHE_KEY_SCHEDULE, tee_times, ttl=ttl)
+            except Exception as e:
+                self.logger.warning(f"Tee-time parsing failed: {e}")
+
             return parsed
 
         except Exception as e:
@@ -136,9 +146,16 @@ class MastersDataSource:
             )
 
             start_date = self._parse_iso_utc(event.get("date"))
-            end_date = self._parse_iso_utc(event.get("endDate")) or (
-                start_date + timedelta(days=3) if start_date else None
-            )
+            end_date = self._parse_iso_utc(event.get("endDate"))
+            if end_date is None and start_date is not None:
+                # Fallback: Masters is always a 4-day (Thu–Sun) event.
+                end_date = start_date + timedelta(days=3)
+            if end_date is not None:
+                # ESPN reports endDate as the *start* of the final day in ET
+                # (e.g. 2026-04-12T04:00Z = Sun Apr 12 00:00 ET). Push to end
+                # of that calendar day so phase checks treat all of Sunday's
+                # play as in-tournament rather than post-tournament.
+                end_date = end_date + timedelta(hours=23, minutes=59, seconds=59)
 
             status_obj = {}
             competitions = event.get("competitions", [])
@@ -187,7 +204,9 @@ class MastersDataSource:
         start = self._second_thursday_of_april(year)
         if now > start + timedelta(days=4):
             start = self._second_thursday_of_april(year + 1)
-        end = start + timedelta(days=3)
+        # Cover all four calendar days (Thu–Sun) through end-of-day, matching
+        # the normalization applied to ESPN's parsed endDate.
+        end = start + timedelta(days=3, hours=23, minutes=59, seconds=59)
         return {
             "name": "Masters Tournament",
             "start_date": start,
@@ -209,7 +228,14 @@ class MastersDataSource:
     # ── Schedule / tee times ─────────────────────────────────────
 
     def fetch_schedule(self) -> List[Dict]:
-        """Fetch Masters tee times and pairings from the live leaderboard payload."""
+        """Return Masters tee-time pairings.
+
+        Tee times are derived from the leaderboard payload and cached inside
+        fetch_leaderboard(), so this is a pure cache read. If the cache is
+        cold (e.g. first call after startup), it triggers a leaderboard
+        refresh to populate it — but only when meta reports is_masters, to
+        avoid parsing a non-Masters PGA event's tee times during off-season.
+        """
         if self.mock_mode:
             return self._generate_mock_schedule()
 
@@ -217,27 +243,22 @@ class MastersDataSource:
         ttl = self._get_cache_ttl()
 
         cached = self.cache_manager.get(cache_key, max_age=ttl)
-        if cached:
+        if cached is not None:
             return cached
 
-        # Reuse the leaderboard payload — tee times live on the leaderboard
-        # endpoint, not on /schedule (which returns the season list).
+        # Cold cache — ask the leaderboard path to refresh everything.
+        # fetch_leaderboard() populates CACHE_KEY_SCHEDULE as a side effect
+        # when meta.is_masters is true.
         try:
-            if self._last_raw_leaderboard is None:
-                # Force a leaderboard refresh to populate _last_raw_leaderboard
-                self.fetch_leaderboard()
-
-            data = self._last_raw_leaderboard
-            if not data:
-                return self._get_fallback_data(cache_key)
-
-            parsed = self._parse_tee_times_from_leaderboard(data)
-            self.cache_manager.set(cache_key, parsed, ttl=ttl)
-            return parsed
-
+            self.fetch_leaderboard()
         except Exception as e:
-            self.logger.error(f"Failed to fetch schedule: {e}")
+            self.logger.error(f"fetch_schedule: leaderboard refresh failed: {e}")
             return self._get_fallback_data(cache_key)
+
+        cached = self.cache_manager.get(cache_key, max_age=None)
+        if cached is not None:
+            return cached
+        return []
 
     # ── Player details ───────────────────────────────────────────
 
