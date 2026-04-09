@@ -253,8 +253,61 @@ COUNTRY_NAMES = {
 # HELPER FUNCTIONS
 # ═══════════════════════════════════════════════════════════════
 
+import unicodedata
+
+# Characters that don't decompose via NFKD (single-codepoint letters with no
+# base+combining form). Extend here if new player nationalities show up.
+_ASCII_FALLBACK = {
+    "ø": "o", "Ø": "O",
+    "æ": "ae", "Æ": "AE",
+    "œ": "oe", "Œ": "OE",
+    "ß": "ss",
+    "ð": "d", "Ð": "D",
+    "þ": "th", "Þ": "Th",
+    "ł": "l", "Ł": "L",
+    "đ": "d", "Đ": "D",
+    "ħ": "h", "Ħ": "H",
+    "ı": "i", "İ": "I",
+    "ŋ": "n", "Ŋ": "N",
+    "\u2013": "-", "\u2014": "-",  # en-dash, em-dash
+    "\u2018": "'", "\u2019": "'",  # smart single quotes
+    "\u201C": '"', "\u201D": '"',  # smart double quotes
+}
+
+
+def ascii_safe(text: str) -> str:
+    """Transliterate a string to plain ASCII for our bitmap fonts.
+
+    Our rendering fonts (PressStart2P and especially 4x6-font) don't ship
+    with Latin Extended glyphs, so player names like "Højgaard", "Åberg",
+    "José María", "Välimäki" either render missing-glyph boxes or drop
+    characters entirely. Normalize NFKD to split combining accents, strip
+    the combiners, then apply an explicit map for single-codepoint letters
+    that don't decompose (ø, æ, ß, ł, ...). Everything else is passed
+    through if it's already ASCII, and non-ASCII leftovers are dropped.
+    """
+    if not text or text.isascii():
+        return text
+    # Explicit multi-codepoint-safe replacements first (ø -> o, æ -> ae, etc).
+    # str.maketrans requires single-char keys, but our map has "ae"/"AE"
+    # values that are multi-char, so iterate explicitly.
+    out_chars: List[str] = []
+    for ch in text:
+        if ch in _ASCII_FALLBACK:
+            out_chars.append(_ASCII_FALLBACK[ch])
+        else:
+            out_chars.append(ch)
+    text = "".join(out_chars)
+    # Decompose combining accents (é -> e + ́) then strip the combiners.
+    normalized = unicodedata.normalize("NFKD", text)
+    result = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+    # Drop any remaining non-ASCII.
+    return result.encode("ascii", "ignore").decode("ascii")
+
+
 def format_player_name(name: str, max_length: int = 15) -> str:
-    """Format player name to fit within character limit."""
+    """Format player name to fit within character limit (ASCII-safe)."""
+    name = ascii_safe(name)
     if len(name) <= max_length:
         return name
 

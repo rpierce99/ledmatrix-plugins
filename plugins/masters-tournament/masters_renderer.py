@@ -27,6 +27,7 @@ from masters_helpers import (
     MULTIPLE_WINNERS,
     PAST_CHAMPIONS,
     TOURNAMENT_RECORDS,
+    ascii_safe,
     format_player_name,
     format_score_to_par,
     get_fun_fact_by_index,
@@ -113,16 +114,32 @@ def _load_font(name: str) -> ImageFont.ImageFont:
     return ImageFont.load_default()
 
 
+# Cache for _load_font_sized. Key: (filename, size). Value: font or None.
+# Keeping None in the cache too so repeated failures don't re-hit the disk.
+_FONT_SIZE_CACHE: Dict[Tuple[str, int], Optional[ImageFont.ImageFont]] = {}
+
+
 def _load_font_sized(filename: str, size: int) -> Optional[ImageFont.ImageFont]:
-    """Load a specific TTF at an arbitrary point size, returning None on failure."""
+    """Load a specific TTF at an arbitrary point size, with memoization.
+
+    Callers like _fit_name() try ~11 (filename, size) combinations per player
+    card render; without caching each call re-opens and re-parses the TTF.
+    """
+    cache_key = (filename, size)
+    if cache_key in _FONT_SIZE_CACHE:
+        return _FONT_SIZE_CACHE[cache_key]
     path = _find_font_path(filename)
     if not path:
+        _FONT_SIZE_CACHE[cache_key] = None
         return None
     try:
-        return ImageFont.truetype(path, size)
+        font = ImageFont.truetype(path, size)
     except Exception as e:
         logger.warning(f"Failed to load font {path}@{size}: {e}")
+        _FONT_SIZE_CACHE[cache_key] = None
         return None
+    _FONT_SIZE_CACHE[cache_key] = font
+    return font
 
 
 class MastersRenderer:
@@ -161,7 +178,7 @@ class MastersRenderer:
         self._configure_tier()
         self._load_fonts()
 
-        self._flag_cache: Dict[str, Image.Image] = {}
+        self._flag_cache: Dict[str, Optional[Image.Image]] = {}
 
     def _configure_tier(self):
         """Configure display parameters by size tier with generous spacing.
@@ -315,7 +332,13 @@ class MastersRenderer:
             flag.thumbnail((fw, fh), Image.Resampling.NEAREST)
             self._flag_cache[country_code] = flag
             return flag
-        except Exception:
+        except Exception as e:
+            self.logger.warning(
+                f"Failed to load flag {country_code} from {flag_path}: {e}",
+                exc_info=True,
+            )
+            # Cache the failure too so we don't re-hit the broken file on every render.
+            self._flag_cache[country_code] = None
             return None
 
     def _score_color(self, score, position=None) -> Tuple[int, int, int]:
@@ -569,7 +592,7 @@ class MastersRenderer:
             y_text += 9
 
         # Green jacket count at bottom (only if there's still vertical room)
-        jacket_count = MULTIPLE_WINNERS.get(raw_name, 0)
+        jacket_count = MULTIPLE_WINNERS.get(ascii_safe(raw_name), 0)
         if jacket_count > 0 and self.tier != "tiny":
             jy = self.height - 10
             if jy > y_text + 2:
@@ -595,7 +618,11 @@ class MastersRenderer:
             3. Last name only          ("Scheffler")
         Only falls back to mid-word truncation if literally nothing fits.
         Returns (font, display_string, rendered_height).
+
+        Input is transliterated to ASCII so accented characters (Åberg,
+        Højgaard, José María) don't render as missing-glyph boxes.
         """
+        raw_name = ascii_safe(raw_name)
         parts = raw_name.split()
         full = raw_name.strip() or "?"
         last = parts[-1] if parts else full
@@ -761,7 +788,7 @@ class MastersRenderer:
             ty += detail_h + 1
 
         # Green jacket strip along the bottom if there's room
-        jacket_count = MULTIPLE_WINNERS.get(raw_name, 0)
+        jacket_count = MULTIPLE_WINNERS.get(ascii_safe(raw_name), 0)
         if jacket_count > 0:
             jy = bottom_bound - detail_h
             if jy > ty + 1:

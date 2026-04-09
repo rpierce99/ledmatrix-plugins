@@ -20,6 +20,7 @@ from masters_helpers import (
     AUGUSTA_PAR,
     MULTIPLE_WINNERS,
     PAST_CHAMPIONS,
+    ascii_safe,
     format_player_name,
     format_score_to_par,
     get_hole_info,
@@ -191,7 +192,7 @@ class MastersRendererEnhanced(MastersRenderer):
                     rx += lw + self._text_width(draw, str(r), self.font_detail) + 6
 
         # Green jacket count at bottom
-        jacket_count = MULTIPLE_WINNERS.get(player.get("player", ""), 0)
+        jacket_count = MULTIPLE_WINNERS.get(ascii_safe(player.get("player", "")), 0)
         if jacket_count > 0 and self.tier != "tiny":
             jy = self.height - 10
             jacket = self.logo_loader.get_green_jacket_icon(size=8)
