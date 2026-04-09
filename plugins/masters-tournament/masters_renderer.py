@@ -16,6 +16,7 @@ Pixel-perfect rendering for LED matrix displays with:
 
 import logging
 import os
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -139,6 +140,51 @@ def _load_font_sized(filename: str, size: int) -> Optional[ImageFont.ImageFont]:
         _FONT_SIZE_CACHE[cache_key] = None
         return None
     _FONT_SIZE_CACHE[cache_key] = font
+    return font
+
+
+# Cache for _load_bdf_font. Key: filename. Value: font or None.
+_BDF_FONT_CACHE: Dict[str, Optional[ImageFont.ImageFont]] = {}
+
+# Persistent temp dir for converted BDF → PIL font files. BdfFontFile.save()
+# writes a .pil header + .pbm bitmap pair that ImageFont.load() then reads,
+# so those files need to exist on disk for the lifetime of the process.
+_BDF_TEMP_DIR: Optional[str] = None
+
+
+def _load_bdf_font(filename: str) -> Optional[ImageFont.ImageFont]:
+    """Load a BDF bitmap font and return it as an ImageFont.
+
+    PIL's ImageFont.truetype() anti-aliases TTF bitmap fonts, which ruins
+    the crispness of pixel fonts like 5by7.regular.ttf at small sizes.
+    BDF files are true fixed-size bitmap fonts — loading them via
+    PIL.BdfFontFile gives pixel-perfect rendering with no sub-pixel
+    smoothing. Converts once per process and caches the result.
+    """
+    if filename in _BDF_FONT_CACHE:
+        return _BDF_FONT_CACHE[filename]
+
+    bdf_path = _find_font_path(filename)
+    if not bdf_path:
+        _BDF_FONT_CACHE[filename] = None
+        return None
+
+    global _BDF_TEMP_DIR
+    if _BDF_TEMP_DIR is None:
+        _BDF_TEMP_DIR = tempfile.mkdtemp(prefix="masters_bdf_")
+
+    try:
+        from PIL import BdfFontFile  # local import — only needed here
+        base = os.path.join(_BDF_TEMP_DIR, os.path.splitext(filename)[0])
+        if not os.path.exists(base + ".pil"):
+            with open(bdf_path, "rb") as f:
+                BdfFontFile.BdfFontFile(f).save(base)
+        font = ImageFont.load(base + ".pil")
+    except Exception as e:
+        logger.warning(f"Failed to load BDF font {bdf_path}: {e}")
+        font = None
+
+    _BDF_FONT_CACHE[filename] = font
     return font
 
 

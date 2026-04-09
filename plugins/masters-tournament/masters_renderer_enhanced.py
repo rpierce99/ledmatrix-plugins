@@ -26,7 +26,7 @@ from masters_helpers import (
     get_hole_info,
     get_score_description,
 )
-from masters_renderer import COLORS, MastersRenderer
+from masters_renderer import COLORS, MastersRenderer, _load_bdf_font, _load_font_sized
 
 logger = logging.getLogger(__name__)
 
@@ -218,31 +218,36 @@ class MastersRendererEnhanced(MastersRenderer):
 
         return img
 
-    # Minimum canvas dimensions where the hole image is worth showing.
-    # Below this, we drop the image and use a 2-column text layout.
-    _HOLE_IMAGE_MIN_W = 96
-    _HOLE_IMAGE_MIN_H = 40
+    # Vertical-resolution threshold for the compact hole card layout.
+    # At less than this height, Par/Yards move to the RIGHT of Hole #/Name
+    # instead of stacking underneath them; at this height or taller, the
+    # current left-panel-plus-image layout is used.
+    _HOLE_COMPACT_HEIGHT = 48
 
     def render_hole_card(self, hole_number: int,
                          card_width: Optional[int] = None,
                          card_height: Optional[int] = None) -> Optional[Image.Image]:
-        """Enhanced hole card with two layout modes:
+        """Enhanced hole card with two layout modes, chosen by vertical resolution:
 
-        1. **Large enough for an image** (cw >= 96 and ch >= 40): a single
-           text column on the left with [Hole #, Name, Par, Yards] stacked,
-           and the hole layout image filling the right side.
+        * **ch >= 48** → existing "big" layout: a single text column on the
+          left with [Hole #, Name, Par, Yards] stacked top-to-bottom,
+          and the hole layout image filling the right side.
 
-        2. **Smaller canvases** (64x32, narrow Vegas blocks, etc.): a
-           two-column text-only layout:
-               ┌─────────────┬─────────────┐
-               │   #12       │  Par 3      │
-               │ Golden Bell │  155y       │
-               │             │ AMEN CORNER │
-               └─────────────┴─────────────┘
+        * **ch < 48** → compact two-column text-only layout:
 
-        The layout decision uses the effective card dimensions, so Vegas
-        scroll blocks at e.g. 128x48 get the image layout while a small
-        64x32 full panel or an 80x32 Vegas block gets the 2-column text.
+              ┌─────────────┬─────────────┐
+              │   #12       │  Par 3      │
+              │ Golden Bell │  155y       │
+              │             │ (AMEN COR)  │
+              └─────────────┴─────────────┘
+
+          Par and Yards sit to the RIGHT of the Hole #/Name column
+          (instead of underneath). No hole image — there isn't enough
+          vertical room for a useful one below 48px.
+
+        The decision is purely on height so Vegas scroll blocks on a
+        tall parent panel still get the image layout whenever they're
+        48+ tall.
         """
         cw = card_width if card_width is not None else self.width
         ch = card_height if card_height is not None else self.height
@@ -252,7 +257,7 @@ class MastersRendererEnhanced(MastersRenderer):
                                      width=cw, height=ch)
         draw = ImageDraw.Draw(img)
 
-        if cw >= self._HOLE_IMAGE_MIN_W and ch >= self._HOLE_IMAGE_MIN_H:
+        if ch >= self._HOLE_COMPACT_HEIGHT:
             return self._render_hole_card_with_image(
                 img, draw, hole_number, hole_info, cw, ch,
             )
@@ -374,68 +379,87 @@ class MastersRendererEnhanced(MastersRenderer):
                                   hole_info: Dict,
                                   cw: Optional[int] = None,
                                   ch: Optional[int] = None) -> Image.Image:
-        """Two-column compact hole card for canvases too small for a hole image.
+        """Compact hole card for vertical resolutions below 48px.
 
-        Drops the hole map image entirely and dedicates the canvas to text
-        so hole #, name, par, yardage, and zone all fit without clipping.
+        Par and Yards sit to the RIGHT of Hole#/Name instead of underneath
+        so everything fits in less vertical space. Zone badge is drawn
+        under Par/Yards when there's room.
 
         Layout:
             ┌─────────────┬─────────────┐
-            │   #12       │  Par 3      │
-            │ Golden Bell │  155y       │
-            │             │ AMEN CORNER │
+            │   #12       │   Par 3     │
+            │ Golden Bell │   155y      │
+            │             │ (AMEN COR)  │
             └─────────────┴─────────────┘
+
+        Uses the 5by7 font for the text — slightly narrower than the
+        default 4x6 so long hole names like "Golden Bell" fit more
+        comfortably in the left column.
         """
         if cw is None:
             cw = self.width
         if ch is None:
             ch = self.height
 
+        # 5x7 BDF bitmap font — pixel-perfect at native 5x7 size. PIL's TTF
+        # anti-aliasing washes out small pixel fonts, so we load the BDF
+        # directly via PIL.BdfFontFile for crisp 1:1 glyph rendering. Falls
+        # back to self.font_detail / self.font_body if the BDF file isn't on
+        # the search path.
+        text_font = _load_bdf_font("5x7.bdf") or self.font_detail
+        hole_font = _load_bdf_font("5x7.bdf") or self.font_body
+
+        # --- LEGACY 4x6 path, kept commented for quick revert if the 5x7
+        # --- BDF causes issues on the Pi. Swap the two blocks to revert.
+        # text_font = _load_font_sized("4x6-font.ttf", 7) or self.font_detail
+        # hole_font = _load_font_sized("4x6-font.ttf", 8) or self.font_body
+
         col_w = cw // 2
         # Divider
         draw.line([(col_w, 1), (col_w, ch - 2)],
                   fill=COLORS["masters_yellow"])
 
-        line_h = self._text_height(draw, "A", self.font_detail) + 1
+        line_h = self._text_height(draw, "Ag", text_font) + 1
 
-        # Left column: hole number (top) + name (centered)
+        # ── Left column: hole number (top) + name (underneath) ──
         hole_text = f"#{hole_number}"
-        hw = self._text_width(draw, hole_text, self.font_body)
-        hole_h = self._text_height(draw, hole_text, self.font_body)
+        hw = self._text_width(draw, hole_text, hole_font)
+        hole_h = self._text_height(draw, hole_text, hole_font)
         draw.text(((col_w - hw) // 2, 1), hole_text,
-                  fill=COLORS["white"], font=self.font_body)
+                  fill=COLORS["white"], font=hole_font)
 
         name_text = hole_info["name"]
-        # Truncate name to fit left column
         max_name_w = col_w - 4
-        while name_text and self._text_width(draw, name_text, self.font_detail) > max_name_w:
+        while name_text and self._text_width(draw, name_text, text_font) > max_name_w:
             name_text = name_text[:-1]
         name_y = 1 + hole_h + 2
-        nw = self._text_width(draw, name_text, self.font_detail)
+        nw = self._text_width(draw, name_text, text_font)
         draw.text(((col_w - nw) // 2, name_y), name_text,
-                  fill=COLORS["masters_yellow"], font=self.font_detail)
+                  fill=COLORS["masters_yellow"], font=text_font)
 
-        # Right column: Par / yardage / zone stacked
+        # ── Right column: Par / yardage [/ zone] stacked ──
         rx = col_w + 3
         right_w = cw - rx - 2
         y = 1
+
         par_text = f"Par {hole_info['par']}"
         draw.text((rx, y), par_text,
-                  fill=COLORS["white"], font=self.font_detail)
+                  fill=COLORS["white"], font=text_font)
         y += line_h
 
         yard_text = f"{hole_info['yardage']}y"
         draw.text((rx, y), yard_text,
-                  fill=COLORS["light_gray"], font=self.font_detail)
+                  fill=COLORS["light_gray"], font=text_font)
         y += line_h
 
+        # Zone only if there's a full text row of headroom left
         zone = hole_info.get("zone")
-        if zone and y + line_h <= ch:
+        if zone and y + line_h <= ch - 1:
             zone_text = zone.upper()
-            while zone_text and self._text_width(draw, zone_text, self.font_detail) > right_w:
+            while zone_text and self._text_width(draw, zone_text, text_font) > right_w:
                 zone_text = zone_text[:-1]
             draw.text((rx, y), zone_text,
-                      fill=COLORS["masters_yellow"], font=self.font_detail)
+                      fill=COLORS["masters_yellow"], font=text_font)
 
         return img
 
