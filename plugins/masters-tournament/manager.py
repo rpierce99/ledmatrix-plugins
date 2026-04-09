@@ -133,6 +133,12 @@ class MastersTournamentPlugin(BasePlugin):
         self._last_player_card_advance = 0.0
         self._player_card_interval = config.get("player_card_duration", 8)
 
+        # Vegas scroll mode: fixed card block width. Cards render at
+        # (scroll_card_width × display_height) regardless of the panel width
+        # so long chained displays (e.g. 5×64 = 320 wide) scroll smoothly
+        # instead of showing one player per full-panel card.
+        self._scroll_card_width = config.get("scroll_card_width", 128)
+
         self.logger.info(
             f"Masters Tournament plugin initialized: {self.display_width}x{self.display_height}, "
             f"{len(self.modes)} modes, phase: {self._tournament_phase}"
@@ -538,22 +544,37 @@ class MastersTournamentPlugin(BasePlugin):
         return self._display_amen_corner(force_clear)
 
     def get_vegas_content(self) -> Optional[List[Image.Image]]:
-        """Return cards for Vegas scroll mode."""
+        """Return cards for Vegas scroll mode.
+
+        Cards are rendered at (scroll_card_width × display_height), not the
+        full panel width — on a long chained display (e.g. 5×64 = 320 wide)
+        this gives you a smoothly-scrolling ticker of ~128-wide blocks
+        instead of one full-panel card at a time. Matches the pattern used
+        by the other sports scoreboard plugins.
+        """
         cards = []
+        cw = self._scroll_card_width
+        ch = self.display_height
 
         for player in self._leaderboard_data[:10]:
-            card = self.renderer.render_player_card(player)
+            card = self.renderer.render_player_card(
+                player, card_width=cw, card_height=ch,
+            )
             if card:
                 cards.append(card)
 
         for hole in range(1, 19):
-            card = self.renderer.render_hole_card(hole)
+            card = self.renderer.render_hole_card(
+                hole, card_width=cw, card_height=ch,
+            )
             if card:
                 cards.append(card)
 
         # Fun facts
         for i in range(5):
-            card = self.renderer.render_fun_fact(i)
+            card = self.renderer.render_fun_fact(
+                i, card_width=cw, card_height=ch,
+            )
             if card:
                 cards.append(card)
 
@@ -588,6 +609,7 @@ class MastersTournamentPlugin(BasePlugin):
         self._hole_switch_interval = new_config.get("hole_display_duration", 15)
         self._page_interval = new_config.get("page_display_duration", 15)
         self._player_card_interval = new_config.get("player_card_duration", 8)
+        self._scroll_card_width = new_config.get("scroll_card_width", 128)
         self._last_hole_advance.clear()
         self._last_page_advance.clear()
         self.modes = self._build_enabled_modes()

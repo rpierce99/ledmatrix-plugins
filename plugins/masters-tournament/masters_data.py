@@ -48,6 +48,31 @@ class MastersDataSource:
         self.config = config
         self.mock_mode = config.get("mock_data", False)
         self.logger = logging.getLogger(__name__)
+        self._cache_warned = False
+
+    def _safe_cache_get(self, key: str, max_age: int) -> Any:
+        """Wrap cache_manager.get() and treat any exception as a cache miss.
+
+        A stale or malformed cache file from an older plugin version can
+        cause the core CacheManager to raise (e.g. `<=` comparisons against
+        None, unpickling errors, etc.). Rather than propagate those errors
+        and crash the plugin's `__init__`, we swallow them here and return
+        None so the caller proceeds as if the cache were empty — the next
+        successful fetch will overwrite the stale file. Log once per
+        instance so we don't spam the journal every tick.
+        """
+        try:
+            return self.cache_manager.get(key, max_age=max_age)
+        except Exception as e:
+            if not self._cache_warned:
+                self.logger.warning(
+                    f"Cache read for {key!r} failed ({e!r}); treating as miss. "
+                    f"A stale cache file from an older plugin version may need "
+                    f"to be removed at /var/cache/ledmatrix/{key}.json — "
+                    f"it will be regenerated on the next successful fetch."
+                )
+                self._cache_warned = True
+            return None
 
     # ── Leaderboard ──────────────────────────────────────────────
 
@@ -59,7 +84,7 @@ class MastersDataSource:
         cache_key = CACHE_KEY_LEADERBOARD
         ttl = self._get_cache_ttl()
 
-        cached = self.cache_manager.get(cache_key, max_age=ttl)
+        cached = self._safe_cache_get(cache_key, max_age=ttl)
         if cached:
             self.logger.debug("Using cached leaderboard data")
             return cached
@@ -124,7 +149,7 @@ class MastersDataSource:
                 "is_masters": bool,
             }
         """
-        cached = self.cache_manager.get(CACHE_KEY_META, max_age=self._get_cache_ttl())
+        cached = self._safe_cache_get(CACHE_KEY_META, max_age=self._get_cache_ttl())
         if cached:
             return self._rehydrate_meta(cached)
 
@@ -135,7 +160,7 @@ class MastersDataSource:
         except Exception as e:
             self.logger.warning(f"fetch_tournament_meta: leaderboard fetch failed: {e}")
 
-        cached = self.cache_manager.get(CACHE_KEY_META, max_age=_NEVER_EXPIRE)
+        cached = self._safe_cache_get(CACHE_KEY_META, max_age=_NEVER_EXPIRE)
         if cached:
             return self._rehydrate_meta(cached)
 
@@ -289,7 +314,7 @@ class MastersDataSource:
         cache_key = CACHE_KEY_SCHEDULE
         ttl = self._get_cache_ttl()
 
-        cached = self.cache_manager.get(cache_key, max_age=ttl)
+        cached = self._safe_cache_get(cache_key, max_age=ttl)
         if cached is not None:
             return cached
 
@@ -302,7 +327,7 @@ class MastersDataSource:
             self.logger.error(f"fetch_schedule: leaderboard refresh failed: {e}")
             return self._get_fallback_data(cache_key)
 
-        cached = self.cache_manager.get(cache_key, max_age=_NEVER_EXPIRE)
+        cached = self._safe_cache_get(cache_key, max_age=_NEVER_EXPIRE)
         if cached is not None:
             return cached
         return []
@@ -317,7 +342,7 @@ class MastersDataSource:
         cache_key = f"masters_player_{player_id}"
         ttl = self._get_cache_ttl()
 
-        cached = self.cache_manager.get(cache_key, max_age=ttl)
+        cached = self._safe_cache_get(cache_key, max_age=ttl)
         if cached:
             self.logger.debug(f"Using cached player details for {player_id}")
             return cached
@@ -649,7 +674,7 @@ class MastersDataSource:
         Avoids calling fetch_tournament_meta() (which could recurse into
         fetch_leaderboard) — only reads whatever is already in cache.
         """
-        raw = self.cache_manager.get(CACHE_KEY_META, max_age=_NEVER_EXPIRE)
+        raw = self._safe_cache_get(CACHE_KEY_META, max_age=_NEVER_EXPIRE)
         if not raw:
             return 3600
         meta = self._rehydrate_meta(raw)
@@ -669,7 +694,7 @@ class MastersDataSource:
 
     def _get_fallback_data(self, cache_key: str) -> List[Dict]:
         """Get stale cached data or mock data as fallback."""
-        cached = self.cache_manager.get(cache_key, max_age=_NEVER_EXPIRE)
+        cached = self._safe_cache_get(cache_key, max_age=_NEVER_EXPIRE)
         if cached:
             self.logger.warning("Using stale cached data for %s", cache_key)
             return cached

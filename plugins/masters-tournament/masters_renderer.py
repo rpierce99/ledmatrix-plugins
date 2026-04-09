@@ -273,19 +273,23 @@ class MastersRenderer:
         bbox = draw.textbbox((0, 0), text, font=font)
         return bbox[3] - bbox[1]
 
-    def _draw_gradient_bg(self, c1, c2, vertical=True) -> Image.Image:
-        img = Image.new("RGB", (self.width, self.height))
+    def _draw_gradient_bg(self, c1, c2, vertical=True,
+                          width: Optional[int] = None,
+                          height: Optional[int] = None) -> Image.Image:
+        w = width if width is not None else self.width
+        h = height if height is not None else self.height
+        img = Image.new("RGB", (w, h))
         draw = ImageDraw.Draw(img)
-        steps = self.height if vertical else self.width
+        steps = h if vertical else w
         for i in range(steps):
             ratio = i / max(steps - 1, 1)
             r = int(c1[0] + (c2[0] - c1[0]) * ratio)
             g = int(c1[1] + (c2[1] - c1[1]) * ratio)
             b = int(c1[2] + (c2[2] - c1[2]) * ratio)
             if vertical:
-                draw.line([(0, i), (self.width, i)], fill=(r, g, b))
+                draw.line([(0, i), (w, i)], fill=(r, g, b))
             else:
-                draw.line([(i, 0), (i, self.height)], fill=(r, g, b))
+                draw.line([(i, 0), (i, h)], fill=(r, g, b))
         return img
 
     def _draw_header_bar(self, img, draw, title, show_logo=True):
@@ -497,16 +501,34 @@ class MastersRenderer:
     # PLAYER CARD - Spacious layout
     # ═══════════════════════════════════════════════════════════
 
-    def render_player_card(self, player: Dict) -> Optional[Image.Image]:
-        """Render spacious player card with headshot and stats."""
+    def render_player_card(self, player: Dict,
+                           card_width: Optional[int] = None,
+                           card_height: Optional[int] = None) -> Optional[Image.Image]:
+        """Render spacious player card with headshot and stats.
+
+        When card_width/card_height are provided, the card is drawn at those
+        dimensions instead of the full panel (self.width × self.height). Used
+        by Vegas scroll mode where each player is a fixed-size block that
+        scrolls across a long display, not a full-screen card.
+        """
         if not player:
             return None
 
-        img = self._draw_gradient_bg(COLORS["masters_dark"], COLORS["masters_green"])
+        w = card_width if card_width is not None else self.width
+        h = card_height if card_height is not None else self.height
+        # Recompute wide-short per-card so a 128x64 block on a 320x64 panel
+        # gets the standard vertical-stack layout (aspect 2.0, not wide-short)
+        # while the same panel's full-screen modes still use the two-column
+        # wide-short layout.
+        aspect = w / max(1, h)
+        card_is_wide_short = (self.tier == "large") and aspect >= 2.5
+
+        img = self._draw_gradient_bg(COLORS["masters_dark"], COLORS["masters_green"],
+                                     width=w, height=h)
         draw = ImageDraw.Draw(img)
 
         # Gold border
-        draw.rectangle([(0, 0), (self.width - 1, self.height - 1)],
+        draw.rectangle([(0, 0), (w - 1, h - 1)],
                        outline=COLORS["masters_yellow"])
 
         raw_name = player.get("player", "Unknown")
@@ -515,8 +537,8 @@ class MastersRenderer:
         # full vertical minus padding; name/country/pos use fonts scaled to
         # height; big score block hugs the right edge. Works for 192x48,
         # 192x64, 256x64 and anything else aspect >= 2.5.
-        if self.is_wide_short:
-            return self._render_player_card_wide_short(img, draw, player, raw_name)
+        if card_is_wide_short:
+            return self._render_player_card_wide_short(img, draw, player, raw_name, w, h)
 
         x = 4
         y = 4
@@ -524,7 +546,7 @@ class MastersRenderer:
         # Headshot on left (sized to available vertical space)
         headshot_size = self.headshot_size
         if self.show_headshot:
-            max_headshot = self.height - (2 * y) - 2
+            max_headshot = h - (2 * y) - 2
             headshot_size = min(headshot_size, max(16, max_headshot))
             headshot = self.logo_loader.get_player_headshot(
                 player.get("player_id", ""),
@@ -540,7 +562,7 @@ class MastersRenderer:
                           headshot if headshot.mode == "RGBA" else None)
 
         tx = x + headshot_size + 6 if self.show_headshot else x
-        bottom_bound = self.height - 3
+        bottom_bound = h - 3
 
         if self.tier == "tiny":
             name = format_player_name(raw_name, 10)
@@ -594,7 +616,7 @@ class MastersRenderer:
         # Green jacket count at bottom (only if there's still vertical room)
         jacket_count = MULTIPLE_WINNERS.get(ascii_safe(raw_name), 0)
         if jacket_count > 0 and self.tier != "tiny":
-            jy = self.height - 10
+            jy = h - 10
             if jy > y_text + 2:
                 jacket_icon = self.logo_loader.get_green_jacket_icon(size=8)
                 jx = 4
@@ -667,27 +689,29 @@ class MastersRenderer:
             text = text[:-1]
         return font, text, h
 
-    def _render_player_card_wide_short(self, img, draw, player, raw_name):
+    def _render_player_card_wide_short(self, img, draw, player, raw_name,
+                                       w: Optional[int] = None,
+                                       h: Optional[int] = None):
         """Maximize canvas usage for wide-short player cards.
 
-        Sizes scale from actual width/height:
-          - headshot fills height minus padding (e.g. 40px tall on 48-tall,
-            56px on 64-tall, 22px on 32-tall)
-          - name font is ~1/5 of height, loaded dynamically
-          - score font is ~1/3 of height, loaded dynamically
-          - flag height matches the country label font
-
-        Layout columns (left → right):
-          [ headshot ] [ name / flag+country / pos+thru ] [ big score ]
+        Sizes scale from actual width/height (defaults to self.width/height
+        but accepts overrides so Vegas scroll mode can pass a smaller card
+        size). A full body that only references the locals w/h keeps this
+        safe for per-call dimensions.
         """
-        padding = max(3, self.height // 16)
-        bottom_bound = self.height - padding
+        if w is None:
+            w = self.width
+        if h is None:
+            h = self.height
+
+        padding = max(3, h // 16)
+        bottom_bound = h - padding
 
         # Headshot — fill the vertical budget, but also cap horizontally so
         # narrow wide-short panels (e.g. 128x48) leave enough room for the
         # name + score columns. The /4 cap ties the headshot to available
         # width, so on 128x48 it shrinks to 32px while 192x48 keeps 42px.
-        headshot_size = max(16, min(self.height - 2 * padding, self.width // 4))
+        headshot_size = max(16, min(h - 2 * padding, w // 4))
         hx = padding
         hy = padding
         if self.show_headshot:
@@ -711,8 +735,8 @@ class MastersRenderer:
         # Proportional font sizes. Score scales with BOTH height and width so
         # narrow wide-short displays (e.g. 128x48) don't let the score eat
         # the entire text column.
-        score_px = max(10, min(24, int(self.height // 2.4), self.width // 8))
-        detail_px = max(6, min(10, self.height // 7))
+        score_px = max(10, min(24, int(h // 2.4), w // 8))
+        detail_px = max(6, min(10, h // 7))
 
         score_font = _load_font_sized("PressStart2P-Regular.ttf", score_px) or self.font_score
         detail_font = _load_font_sized("4x6-font.ttf", detail_px) or self.font_detail
@@ -723,13 +747,13 @@ class MastersRenderer:
         score_w = self._text_width(draw, score_text, score_font)
         score_h = self._text_height(draw, score_text, score_font)
         score_block_w = score_w + padding * 2
-        score_x = self.width - score_w - padding - 1
-        score_y = (self.height - score_h) // 2
+        score_x = w - score_w - padding - 1
+        score_y = (h - score_h) // 2
         self._text_shadow(draw, (score_x, score_y), score_text,
                           score_font, self._score_color(score))
 
         # Faint separator before the score column
-        sep_x = self.width - score_block_w - 1
+        sep_x = w - score_block_w - 1
         draw.line([(sep_x, padding), (sep_x, bottom_bound)],
                   fill=COLORS["masters_dark"])
 
@@ -743,12 +767,12 @@ class MastersRenderer:
         # size 12; 4x6-font is much narrower. We try several sizes of each
         # and fall back to truncation only if nothing fits.
         name_font, name_display, name_h = self._fit_name(
-            draw, raw_name, text_w, max_height=self.height // 3,
+            draw, raw_name, text_w, max_height=h // 3,
         )
 
         ty = padding
         self._text_shadow(draw, (tx, ty), name_display, name_font, COLORS["white"])
-        ty += name_h + max(3, self.height // 16)
+        ty += name_h + max(3, h // 16)
 
         # Country flag + code
         country = player.get("country", "")
@@ -813,16 +837,21 @@ class MastersRenderer:
     # HOLE CARD - Clean layout
     # ═══════════════════════════════════════════════════════════
 
-    def render_hole_card(self, hole_number: int) -> Optional[Image.Image]:
+    def render_hole_card(self, hole_number: int,
+                         card_width: Optional[int] = None,
+                         card_height: Optional[int] = None) -> Optional[Image.Image]:
+        cw = card_width if card_width is not None else self.width
+        ch = card_height if card_height is not None else self.height
         hole_info = get_hole_info(hole_number)
 
-        img = self._draw_gradient_bg((15, 80, 30), COLORS["augusta_green"])
+        img = self._draw_gradient_bg((15, 80, 30), COLORS["augusta_green"],
+                                     width=cw, height=ch)
         draw = ImageDraw.Draw(img)
 
         # Header
-        h = self.header_height
-        draw.rectangle([(0, 0), (self.width - 1, h - 1)], fill=COLORS["masters_green"])
-        draw.line([(0, h - 1), (self.width, h - 1)], fill=COLORS["masters_yellow"])
+        header_h = self.header_height
+        draw.rectangle([(0, 0), (cw - 1, header_h - 1)], fill=COLORS["masters_green"])
+        draw.line([(0, header_h - 1), (cw, header_h - 1)], fill=COLORS["masters_yellow"])
 
         hole_text = f"HOLE {hole_number}"
         self._text_shadow(draw, (3, 1), hole_text, self.font_header, COLORS["white"])
@@ -830,23 +859,23 @@ class MastersRenderer:
         if self.tier != "tiny":
             name_text = hole_info["name"]
             name_w = self._text_width(draw, name_text, self.font_detail)
-            draw.text((self.width - name_w - 3, 2), name_text,
+            draw.text((cw - name_w - 3, 2), name_text,
                       fill=COLORS["masters_yellow"], font=self.font_detail)
 
         # Hole layout image (clamp to min 1px for tiny displays)
         hole_img = self.logo_loader.get_hole_image(
             hole_number,
-            max_width=max(1, self.width - 8),
-            max_height=max(1, self.height - h - 14),
+            max_width=max(1, cw - 8),
+            max_height=max(1, ch - header_h - 14),
         )
         if hole_img:
-            hx = (self.width - hole_img.width) // 2
-            hy = h + 2
+            hx = (cw - hole_img.width) // 2
+            hy = header_h + 2
             img.paste(hole_img, (hx, hy), hole_img if hole_img.mode == "RGBA" else None)
 
         # Footer
-        footer_y = self.height - 9
-        draw.rectangle([(0, footer_y), (self.width - 1, self.height - 1)], fill=(0, 0, 0))
+        footer_y = ch - 9
+        draw.rectangle([(0, footer_y), (cw - 1, ch - 1)], fill=(0, 0, 0))
         info_text = f"Par {hole_info['par']}  {hole_info['yardage']}y"
         self._text_shadow(draw, (3, footer_y + 1), info_text,
                           self.font_detail, COLORS["white"])
@@ -855,10 +884,10 @@ class MastersRenderer:
         if zone and self.tier != "tiny":
             badge_text = zone.upper()
             bw = self._text_width(draw, badge_text, self.font_detail) + 4
-            draw.rectangle([(self.width - bw - 2, footer_y),
-                            (self.width - 2, self.height - 1)],
+            draw.rectangle([(cw - bw - 2, footer_y),
+                            (cw - 2, ch - 1)],
                            fill=COLORS["masters_dark"])
-            draw.text((self.width - bw, footer_y + 1), badge_text,
+            draw.text((cw - bw, footer_y + 1), badge_text,
                       fill=COLORS["masters_yellow"], font=self.font_detail)
 
         return img
@@ -978,29 +1007,35 @@ class MastersRenderer:
     # FUN FACTS - Scrolling text
     # ═══════════════════════════════════════════════════════════
 
-    def render_fun_fact(self, fact_index: int = -1, scroll_offset: int = 0) -> Optional[Image.Image]:
+    def render_fun_fact(self, fact_index: int = -1, scroll_offset: int = 0,
+                        card_width: Optional[int] = None,
+                        card_height: Optional[int] = None) -> Optional[Image.Image]:
         """Render a fun fact with vertical scroll support for long text."""
+        cw = card_width if card_width is not None else self.width
+        ch = card_height if card_height is not None else self.height
+
         if fact_index < 0:
             fact = get_random_fun_fact()
         else:
             fact = get_fun_fact_by_index(fact_index)
 
-        img = self._draw_gradient_bg(COLORS["bg"], COLORS["bg_dark_green"])
+        img = self._draw_gradient_bg(COLORS["bg"], COLORS["bg_dark_green"],
+                                     width=cw, height=ch)
         draw = ImageDraw.Draw(img)
 
         # Header
-        h = self.header_height
-        draw.rectangle([(0, 0), (self.width - 1, h - 1)], fill=COLORS["masters_green"])
-        draw.line([(0, h - 1), (self.width, h - 1)], fill=COLORS["masters_yellow"])
+        header_h = self.header_height
+        draw.rectangle([(0, 0), (cw - 1, header_h - 1)], fill=COLORS["masters_green"])
+        draw.line([(0, header_h - 1), (cw, header_h - 1)], fill=COLORS["masters_yellow"])
 
         title = "DID YOU KNOW?"
         self._text_shadow(draw, (3, 1), title, self.font_header, COLORS["masters_yellow"])
 
         # Word-wrap the fact text with generous padding
-        content_top = h + 4
+        content_top = header_h + 4
         font = self.font_detail
         line_h = self._text_height(draw, "Ag", font) + 2  # Extra line spacing
-        max_w = self.width - 10  # More horizontal padding
+        max_w = cw - 10  # More horizontal padding
 
         words = fact.split()
         lines = []
@@ -1017,7 +1052,7 @@ class MastersRenderer:
             lines.append(current_line)
 
         # Apply scroll offset (for long facts)
-        visible_lines = max(1, (self.height - content_top - 4) // line_h)
+        visible_lines = max(1, (ch - content_top - 4) // line_h)
         if len(lines) > visible_lines:
             start_line = scroll_offset % max(1, len(lines) - visible_lines + 1)
             lines = lines[start_line : start_line + visible_lines]
@@ -1031,8 +1066,8 @@ class MastersRenderer:
         # Scroll indicator if text is long
         if len(words) > visible_lines * 4:  # Rough heuristic
             # Small down arrow
-            ax = self.width - 6
-            ay = self.height - 6
+            ax = cw - 6
+            ay = ch - 6
             draw.polygon([(ax - 2, ay - 2), (ax + 2, ay - 2), (ax, ay + 1)],
                          fill=COLORS["masters_yellow"])
 

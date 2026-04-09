@@ -91,10 +91,23 @@ class MastersRendererEnhanced(MastersRenderer):
         self._draw_page_dots(draw, page, total_pages)
         return img
 
-    def render_player_card(self, player: Dict) -> Optional[Image.Image]:
-        """Enhanced player card with round scores and green jacket info."""
+    def render_player_card(self, player: Dict,
+                           card_width: Optional[int] = None,
+                           card_height: Optional[int] = None) -> Optional[Image.Image]:
+        """Enhanced player card with round scores and green jacket info.
+
+        When card_width/card_height are passed (Vegas scroll mode), the card
+        is drawn at those dimensions instead of the full panel. We delegate
+        to the base class's layouts which already honor the override, since
+        the enhanced round-scores block doesn't fit in a Vegas-size card anyway.
+        """
         if not player:
             return None
+
+        # Vegas scroll override → always delegate to base (handles its own
+        # width/height overrides and the wide-short/standard layout split).
+        if card_width is not None or card_height is not None:
+            return super().render_player_card(player, card_width=card_width, card_height=card_height)
 
         # Wide-short panels (192x48, 256x64, etc.): delegate to the base
         # class's two-column layout. We drop the round-scores block — there's
@@ -205,7 +218,9 @@ class MastersRendererEnhanced(MastersRenderer):
 
         return img
 
-    def render_hole_card(self, hole_number: int) -> Optional[Image.Image]:
+    def render_hole_card(self, hole_number: int,
+                         card_width: Optional[int] = None,
+                         card_height: Optional[int] = None) -> Optional[Image.Image]:
         """Enhanced hole card — left info panel, right hole image using full height.
 
         Layout is anchored to the TOP and BOTTOM of the canvas so hole number
@@ -216,7 +231,16 @@ class MastersRendererEnhanced(MastersRenderer):
         Small tier (64x32 and similar) uses a compact text-only layout —
         the hole map is too small to be useful at that size and eating it
         lets us actually show par and yardage without clipping.
+
+        Vegas scroll overrides delegate to the base class which honors the
+        dimension override directly — the enhanced left-panel-plus-image
+        layout is designed for full-panel rendering, not small blocks.
         """
+        if card_width is not None or card_height is not None:
+            return super().render_hole_card(
+                hole_number, card_width=card_width, card_height=card_height
+            )
+
         hole_info = get_hole_info(hole_number)
 
         img = self._draw_gradient_bg((10, 70, 25), COLORS["augusta_green"])

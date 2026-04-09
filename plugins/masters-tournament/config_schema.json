@@ -44,6 +44,13 @@
       "maximum": 300,
       "description": "Seconds between page advances in paginated modes (leaderboard, champions, tournament stats, schedule, course overview)"
     },
+    "scroll_card_width": {
+      "type": "integer",
+      "default": 128,
+      "minimum": 32,
+      "maximum": 256,
+      "description": "Width in pixels of each card when rendered in Vegas scroll mode (the horizontally-scrolling ticker). Set lower to pack more cards into a long panel; set higher for more detail per card. Card height always matches the display height."
+    },
     "mock_data": {
       "type": "boolean",
       "default": false,
