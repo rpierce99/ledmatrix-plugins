@@ -22,6 +22,13 @@ CACHE_KEY_LEADERBOARD = "masters_leaderboard"
 CACHE_KEY_META = "masters_tournament_meta"
 CACHE_KEY_SCHEDULE = "masters_schedule"
 
+# Sentinel passed to cache_manager.get(max_age=...) when we want "return
+# whatever exists, even if stale". The LEDMatrix core CacheManager.get()
+# signature is `max_age: int = 300` — it doesn't accept None, so we use a
+# very large finite value (~68 years) to effectively disable expiry at the
+# read site.
+_NEVER_EXPIRE = 2**31 - 1
+
 
 class MastersDataSource:
     """Fetches and caches Masters Tournament data from ESPN Golf API."""
@@ -119,7 +126,7 @@ class MastersDataSource:
         """
         cached = self.cache_manager.get(CACHE_KEY_META, max_age=self._get_cache_ttl())
         if cached:
-            return cached
+            return self._rehydrate_meta(cached)
 
         # Meta lives alongside the leaderboard payload; a leaderboard fetch
         # will populate it as a side effect.
@@ -128,13 +135,31 @@ class MastersDataSource:
         except Exception as e:
             self.logger.warning(f"fetch_tournament_meta: leaderboard fetch failed: {e}")
 
-        cached = self.cache_manager.get(CACHE_KEY_META, max_age=None)
+        cached = self.cache_manager.get(CACHE_KEY_META, max_age=_NEVER_EXPIRE)
         if cached:
-            return cached
+            return self._rehydrate_meta(cached)
 
         # Final fallback: compute the Masters as the second Thursday of April
         # so off-season countdowns still work.
         return self._computed_fallback_meta()
+
+    @classmethod
+    def _rehydrate_meta(cls, cached: Dict) -> Dict:
+        """Convert cached meta date fields back to tz-aware datetimes.
+
+        The core CacheManager serializes to JSON on disk, which turns our
+        datetime objects into ISO strings. Consumers (countdown, phase
+        detection, TTL computation) all expect datetime instances, so we
+        rehydrate here at the single read boundary.
+        """
+        if not isinstance(cached, dict):
+            return cached
+        meta = dict(cached)
+        for key in ("start_date", "end_date"):
+            value = meta.get(key)
+            if isinstance(value, str):
+                meta[key] = cls._parse_iso_utc(value)
+        return meta
 
     def _parse_tournament_meta(self, data: Dict) -> Optional[Dict]:
         """Extract tournament meta from an ESPN leaderboard response."""
@@ -277,7 +302,7 @@ class MastersDataSource:
             self.logger.error(f"fetch_schedule: leaderboard refresh failed: {e}")
             return self._get_fallback_data(cache_key)
 
-        cached = self.cache_manager.get(cache_key, max_age=None)
+        cached = self.cache_manager.get(cache_key, max_age=_NEVER_EXPIRE)
         if cached is not None:
             return cached
         return []
@@ -624,24 +649,27 @@ class MastersDataSource:
         Avoids calling fetch_tournament_meta() (which could recurse into
         fetch_leaderboard) — only reads whatever is already in cache.
         """
-        meta = self.cache_manager.get(CACHE_KEY_META, max_age=None)
-        if meta:
-            status = meta.get("status")
-            if status == "in":
-                return 30
-            start = meta.get("start_date")
-            end = meta.get("end_date")
-            now = datetime.now(timezone.utc)
-            if start and end and start <= now <= end:
-                return 30
-            if start and timedelta(0) <= start - now <= timedelta(days=3):
-                return 300
+        raw = self.cache_manager.get(CACHE_KEY_META, max_age=_NEVER_EXPIRE)
+        if not raw:
             return 3600
+        meta = self._rehydrate_meta(raw)
+        status = meta.get("status")
+        if status == "in":
+            return 30
+        start = meta.get("start_date")
+        end = meta.get("end_date")
+        if not isinstance(start, datetime):
+            return 3600
+        now = datetime.now(timezone.utc)
+        if isinstance(end, datetime) and start <= now <= end:
+            return 30
+        if timedelta(0) <= start - now <= timedelta(days=3):
+            return 300
         return 3600
 
     def _get_fallback_data(self, cache_key: str) -> List[Dict]:
         """Get stale cached data or mock data as fallback."""
-        cached = self.cache_manager.get(cache_key, max_age=None)
+        cached = self.cache_manager.get(cache_key, max_age=_NEVER_EXPIRE)
         if cached:
             self.logger.warning("Using stale cached data for %s", cache_key)
             return cached
