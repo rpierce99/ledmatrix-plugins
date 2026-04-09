@@ -933,9 +933,11 @@ class MastersRenderer:
             draw.line([(col_w, content_top), (col_w, content_bottom)],
                       fill=COLORS["masters_dark"])
 
-        # Fit ~3 player names in a single column, 2 per side in two-col
+        # Masters pairings are almost always threesomes; always build text
+        # from the full list and let the width-clipping loop shorten it.
+        # Dropping the third golfer up front would hide half of who's in the
+        # group on wide-short layouts.
         name_budget = 10 if not two_column else 9
-        names_per_entry = 3 if not two_column else 2
 
         for i, entry in enumerate(entries):
             col = i // rows
@@ -950,10 +952,10 @@ class MastersRenderer:
                       fill=COLORS["masters_yellow"], font=self.font_body)
             y += self.row_height + 1
 
-            # Players — clip to column width
+            # Players — build from full list, clip to column width
             players = entry.get("players", []) or []
             players_text = ", ".join(
-                format_player_name(p, name_budget) for p in players[:names_per_entry]
+                format_player_name(p, name_budget) for p in players
             )
             while players_text and self._text_width(draw, players_text, self.font_detail) > (cx_right - cx - 3):
                 players_text = players_text[:-1]

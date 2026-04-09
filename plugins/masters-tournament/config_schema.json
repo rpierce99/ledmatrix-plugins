@@ -23,6 +23,27 @@
       "maximum": 3600,
       "description": "How often to fetch new data in seconds (30s during tournament, 3600s off-season)"
     },
+    "player_card_duration": {
+      "type": "integer",
+      "default": 8,
+      "minimum": 1,
+      "maximum": 300,
+      "description": "Seconds each player card is shown before rotating to the next player in the player card display mode"
+    },
+    "hole_display_duration": {
+      "type": "integer",
+      "default": 15,
+      "minimum": 1,
+      "maximum": 300,
+      "description": "Seconds between hole advances in course tour and hole-by-hole display modes"
+    },
+    "page_display_duration": {
+      "type": "integer",
+      "default": 15,
+      "minimum": 1,
+      "maximum": 300,
+      "description": "Seconds between page advances in paginated modes (leaderboard, champions, tournament stats, schedule, course overview)"
+    },
     "mock_data": {
       "type": "boolean",
       "default": false,
