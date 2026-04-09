@@ -825,13 +825,17 @@ class MastersRenderer:
         img = self._draw_gradient_bg(COLORS["masters_dark"], COLORS["masters_green"])
         draw = ImageDraw.Draw(img)
 
-        # Countdown text — show days + hours for context, or hours:minutes when < 1 day
+        # Countdown text — show days + hours for context, hours:minutes when
+        # under 1 day, minutes-only in the final hour, then "NOW".
         if days > 0:
             count_text = f"{days}d {hours}h"
             unit_text = "UNTIL THE MASTERS"
         elif hours > 0:
             count_text = f"{hours}:{minutes:02d}"
             unit_text = "HOURS TO GO"
+        elif minutes > 0:
+            count_text = f"{minutes}m"
+            unit_text = "MINUTES TO GO"
         else:
             count_text = "NOW"
             unit_text = ""

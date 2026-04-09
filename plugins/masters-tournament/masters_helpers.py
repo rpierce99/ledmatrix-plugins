@@ -298,9 +298,27 @@ def _to_eastern(date: Optional[datetime]) -> datetime:
     return date.astimezone(_EDT)
 
 
-def get_tournament_phase(date: Optional[datetime] = None) -> str:
-    """Determine current Masters tournament phase (basic)."""
+def get_tournament_phase(
+    date: Optional[datetime] = None,
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+) -> str:
+    """Determine current Masters tournament phase (basic).
+
+    When start_date/end_date are provided (e.g. from the live ESPN feed),
+    phase is computed by comparison. Otherwise falls back to a hardcoded
+    second-week-of-April heuristic for backwards compatibility.
+    """
     date = _to_eastern(date)
+
+    if start_date is not None and end_date is not None:
+        start_e = _to_eastern(start_date)
+        end_e = _to_eastern(end_date)
+        if start_e <= date <= end_e:
+            return "tournament"
+        if timedelta(0) <= (start_e - date) <= timedelta(days=3):
+            return "practice"
+        return "off-season"
 
     if date.month == 4:
         if 7 <= date.day <= 9:
@@ -311,7 +329,11 @@ def get_tournament_phase(date: Optional[datetime] = None) -> str:
     return "off-season"
 
 
-def get_detailed_phase(date: Optional[datetime] = None) -> str:
+def get_detailed_phase(
+    date: Optional[datetime] = None,
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+) -> str:
     """
     Determine detailed tournament phase including time-of-day awareness.
 
@@ -326,6 +348,33 @@ def get_detailed_phase(date: Optional[datetime] = None) -> str:
         "post-tournament"     - Sunday evening / Monday after Masters
     """
     date = _to_eastern(date)
+
+    # Date-driven path (preferred): when the live ESPN feed supplies real
+    # tournament dates, compute phase by comparison so we don't rely on
+    # hardcoded April day numbers.
+    if start_date is not None and end_date is not None:
+        start_e = _to_eastern(start_date)
+        end_e = _to_eastern(end_date)
+        hour = date.hour
+
+        if start_e <= date <= end_e:
+            if hour < 6:
+                return "tournament-overnight"
+            if hour < 8:
+                return "tournament-morning"
+            if hour < 19:
+                return "tournament-live"
+            return "tournament-evening"
+
+        if date > end_e and (date - end_e) <= timedelta(days=1):
+            return "post-tournament"
+
+        delta = start_e - date
+        if timedelta(0) < delta <= timedelta(days=3):
+            return "practice"
+        if timedelta(0) < delta <= timedelta(days=14):
+            return "pre-tournament"
+        return "off-season"
 
     month = date.month
     day = date.day

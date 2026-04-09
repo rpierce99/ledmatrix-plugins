@@ -58,6 +58,14 @@ class MastersTournamentPlugin(BasePlugin):
         self.logo_loader = MastersLogoLoader(os.path.dirname(os.path.abspath(__file__)))
         self.data_source = MastersDataSource(cache_manager, config)
 
+        # Live tournament metadata (start/end dates, status, round).
+        # Populated from ESPN on first fetch; drives countdown + phase detection.
+        self._tournament_meta: Optional[Dict] = None
+        try:
+            self._tournament_meta = self.data_source.fetch_tournament_meta()
+        except Exception as e:
+            self.logger.warning(f"Initial tournament meta fetch failed: {e}")
+
         # Use enhanced renderer for 64x32+, base for tiny displays
         if self.display_width >= 64:
             self.renderer = MastersRendererEnhanced(
@@ -83,9 +91,10 @@ class MastersTournamentPlugin(BasePlugin):
         self._last_update = 0
         self._update_interval = config.get("update_interval", 30)
 
-        # Tournament phase
-        self._tournament_phase = get_tournament_phase()
-        self._detailed_phase = get_detailed_phase()
+        # Tournament phase — date-driven from live meta when available
+        meta_start, meta_end = self._meta_dates()
+        self._tournament_phase = get_tournament_phase(start_date=meta_start, end_date=meta_end)
+        self._detailed_phase = get_detailed_phase(start_date=meta_start, end_date=meta_end)
 
         # Build enabled modes (phase-aware)
         self.modes = self._build_enabled_modes()
@@ -211,6 +220,11 @@ class MastersTournamentPlugin(BasePlugin):
         ],
     }
 
+    def _meta_dates(self):
+        """Return (start_date, end_date) from cached meta, or (None, None)."""
+        meta = self._tournament_meta or {}
+        return meta.get("start_date"), meta.get("end_date")
+
     def _build_enabled_modes(self) -> List[str]:
         """Build mode list based on current tournament phase and time of day.
 
@@ -218,7 +232,8 @@ class MastersTournamentPlugin(BasePlugin):
         the user sees and in what order. Modes listed multiple times get
         proportionally more screen time.
         """
-        phase = get_detailed_phase()
+        meta_start, meta_end = self._meta_dates()
+        phase = get_detailed_phase(start_date=meta_start, end_date=meta_end)
         phase_modes = self.PHASE_MODES.get(phase, self.PHASE_MODES["off-season"])
 
         # Filter by user config (respect per-mode enabled/disabled)
@@ -259,14 +274,26 @@ class MastersTournamentPlugin(BasePlugin):
 
         self.logger.info("Updating Masters Tournament data...")
         self._last_update = now
-        self._tournament_phase = get_tournament_phase()
+
+        # Refresh tournament meta (cheap — reads cache populated by leaderboard fetch)
+        try:
+            self._tournament_meta = self.data_source.fetch_tournament_meta()
+        except Exception as e:
+            self.logger.warning(f"Tournament meta refresh failed: {e}")
+
+        meta_start, meta_end = self._meta_dates()
+        self._tournament_phase = get_tournament_phase(
+            start_date=meta_start, end_date=meta_end
+        )
 
         # Refresh modes based on current phase/time of day
         # This lets modes shift automatically (e.g., morning → live → evening)
         new_modes = self._build_enabled_modes()
         if new_modes != self.modes:
             old_phase = self._detailed_phase
-            self._detailed_phase = get_detailed_phase()
+            self._detailed_phase = get_detailed_phase(
+                start_date=meta_start, end_date=meta_end
+            )
             self.modes = new_modes
             self.logger.info(
                 f"Phase changed: {old_phase} -> {self._detailed_phase}, "
@@ -474,12 +501,16 @@ class MastersTournamentPlugin(BasePlugin):
         return result
 
     def _display_countdown(self, force_clear: bool) -> bool:
-        # Compute next Masters Thursday dynamically (approx second Thursday of April)
-        now = datetime.utcnow()
-        year = now.year
-        target = datetime(year, 4, 10, 12, 0, 0)
-        if now > target:
-            target = datetime(year + 1, 4, 10, 12, 0, 0)
+        # Use live ESPN-derived tournament start date. Falls back to a computed
+        # second-Thursday-of-April inside the data source if ESPN isn't serving
+        # the Masters (off-season).
+        meta = self._tournament_meta or self.data_source.fetch_tournament_meta()
+        if meta and meta.get("start_date"):
+            target = meta["start_date"]
+        else:
+            # Hard fallback — should be unreachable, but keep the screen alive.
+            now = datetime.utcnow()
+            target = datetime(now.year, 4, 10, 12, 0, 0)
         countdown = calculate_tournament_countdown(target)
         return self._show_image(
             self.renderer.render_countdown(
