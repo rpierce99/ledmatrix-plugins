@@ -128,8 +128,10 @@ class MastersTournamentPlugin(BasePlugin):
         self._last_page_advance = {}  # per-mode page timers
         self._page_interval = config.get("page_display_duration", 15)
 
-        # Player card rotation
+        # Player card rotation — dwell on each card for N seconds.
         self._player_card_index = 0
+        self._last_player_card_advance = 0.0
+        self._player_card_interval = config.get("player_card_duration", 8)
 
         self.logger.info(
             f"Masters Tournament plugin initialized: {self.display_width}x{self.display_height}, "
@@ -423,10 +425,16 @@ class MastersTournamentPlugin(BasePlugin):
     def _display_player_cards(self, force_clear: bool) -> bool:
         if not self._leaderboard_data:
             return False
-        # Rotate through top players
+        # Rotate through top players on a dwell timer (not every frame) so
+        # viewers actually get to read each card.
+        now = time.time()
+        if self._last_player_card_advance == 0.0:
+            self._last_player_card_advance = now
+        elif now - self._last_player_card_advance >= self._player_card_interval:
+            self._player_card_index += 1
+            self._last_player_card_advance = now
         idx = self._player_card_index % min(5, len(self._leaderboard_data))
         player = self._leaderboard_data[idx]
-        self._player_card_index += 1
         return self._show_image(self.renderer.render_player_card(player))
 
     def _display_course_tour(self, force_clear: bool) -> bool:
@@ -579,6 +587,7 @@ class MastersTournamentPlugin(BasePlugin):
         self.display_duration = new_config.get("display_duration", 20)
         self._hole_switch_interval = new_config.get("hole_display_duration", 15)
         self._page_interval = new_config.get("page_display_duration", 15)
+        self._player_card_interval = new_config.get("player_card_duration", 8)
         self._last_hole_advance.clear()
         self._last_page_advance.clear()
         self.modes = self._build_enabled_modes()
