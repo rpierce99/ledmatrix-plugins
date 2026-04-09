@@ -66,10 +66,13 @@ class MastersDataSource:
             response.raise_for_status()
             data = response.json()
 
-            # Parse and cache tournament meta alongside the leaderboard so
-            # countdown / phase / TTL all flow from one HTTP call.
+            # Parse tournament meta from the leaderboard payload. Only cache
+            # it when ESPN is actually serving the Masters — otherwise a
+            # non-Masters PGA event (e.g. RBC Heritage during off-season)
+            # would poison the cache and drive the countdown / phase to
+            # the wrong tournament.
             meta = self._parse_tournament_meta(data)
-            if meta:
+            if meta and meta.get("is_masters"):
                 self.cache_manager.set(CACHE_KEY_META, meta, ttl=ttl)
 
             if not meta or not meta.get("is_masters"):
@@ -193,6 +196,25 @@ class MastersDataSource:
             return dt.astimezone(timezone.utc)
         except Exception:
             return None
+
+    @classmethod
+    def _format_tee_time_et(cls, iso_value: Optional[str]) -> str:
+        """Render an ESPN ISO tee time as compact Augusta-local display text.
+
+        Example: '2026-04-09T14:07Z' -> '10:07 AM'. Returns 'TBD' for
+        unparseable or empty values. The Masters is always played in the
+        second week of April, which is after US DST starts, so EDT (UTC-4)
+        is always correct — no tz database lookup needed.
+        """
+        dt = cls._parse_iso_utc(iso_value)
+        if dt is None:
+            return "TBD"
+        et = dt - timedelta(hours=4)  # EDT
+        hour = et.hour
+        minute = et.minute
+        suffix = "AM" if hour < 12 else "PM"
+        display_hour = hour % 12 or 12
+        return f"{display_hour}:{minute:02d} {suffix}"
 
     def _computed_fallback_meta(self) -> Dict:
         """Compute a best-guess Masters window: second Thursday of April.
@@ -430,11 +452,13 @@ class MastersDataSource:
                     for competitor in tt.get("competitors", []) or []:
                         athlete = competitor.get("athlete", {}) or {}
                         players_list.append(athlete.get("displayName", "Unknown"))
+                    iso = tt.get("startTime") or ""
                     result.append({
-                        "time": tt.get("startTime", "TBD"),
+                        "time": self._format_tee_time_et(iso),
+                        "time_raw": iso,
                         "players": players_list,
                     })
-                result.sort(key=lambda g: g.get("time") or "")
+                result.sort(key=lambda g: g.get("time_raw") or "")
                 return result
 
             # Fallback: group competitors by their status.teeTime.
@@ -449,10 +473,14 @@ class MastersDataSource:
                 groups.setdefault(tee_time, []).append(name)
 
             result = [
-                {"time": t, "players": players}
+                {
+                    "time": self._format_tee_time_et(t),
+                    "time_raw": t,
+                    "players": players,
+                }
                 for t, players in groups.items()
             ]
-            result.sort(key=lambda g: g["time"])
+            result.sort(key=lambda g: g["time_raw"])
             return result
         except Exception as e:
             self.logger.error(f"Error parsing tee times: {e}")
