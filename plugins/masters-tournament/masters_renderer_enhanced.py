@@ -218,48 +218,63 @@ class MastersRendererEnhanced(MastersRenderer):
 
         return img
 
+    # Minimum canvas dimensions where the hole image is worth showing.
+    # Below this, we drop the image and use a 2-column text layout.
+    _HOLE_IMAGE_MIN_W = 96
+    _HOLE_IMAGE_MIN_H = 40
+
     def render_hole_card(self, hole_number: int,
                          card_width: Optional[int] = None,
                          card_height: Optional[int] = None) -> Optional[Image.Image]:
-        """Enhanced hole card — left info panel, right hole image using full height.
+        """Enhanced hole card with two layout modes:
 
-        Layout is anchored to the TOP and BOTTOM of the canvas so hole number
-        is pinned to the top, par/yardage are pinned to the bottom, and the
-        hole name fills whatever's left in the middle (wrapped on tall
-        displays, truncated on short ones).
+        1. **Large enough for an image** (cw >= 96 and ch >= 40): a single
+           text column on the left with [Hole #, Name, Par, Yards] stacked,
+           and the hole layout image filling the right side.
 
-        Small tier (64x32 and similar) uses a compact text-only layout —
-        the hole map is too small to be useful at that size and eating it
-        lets us actually show par and yardage without clipping.
+        2. **Smaller canvases** (64x32, narrow Vegas blocks, etc.): a
+           two-column text-only layout:
+               ┌─────────────┬─────────────┐
+               │   #12       │  Par 3      │
+               │ Golden Bell │  155y       │
+               │             │ AMEN CORNER │
+               └─────────────┴─────────────┘
 
-        Vegas scroll overrides delegate to the base class which honors the
-        dimension override directly — the enhanced left-panel-plus-image
-        layout is designed for full-panel rendering, not small blocks.
+        The layout decision uses the effective card dimensions, so Vegas
+        scroll blocks at e.g. 128x48 get the image layout while a small
+        64x32 full panel or an 80x32 Vegas block gets the 2-column text.
         """
-        if card_width is not None or card_height is not None:
-            return super().render_hole_card(
-                hole_number, card_width=card_width, card_height=card_height
-            )
+        cw = card_width if card_width is not None else self.width
+        ch = card_height if card_height is not None else self.height
 
         hole_info = get_hole_info(hole_number)
-
-        img = self._draw_gradient_bg((10, 70, 25), COLORS["augusta_green"])
+        img = self._draw_gradient_bg((10, 70, 25), COLORS["augusta_green"],
+                                     width=cw, height=ch)
         draw = ImageDraw.Draw(img)
 
-        # Compact text-only layout for small/short displays.
-        if self.tier == "small":
-            return self._render_hole_card_compact(img, draw, hole_number, hole_info)
+        if cw >= self._HOLE_IMAGE_MIN_W and ch >= self._HOLE_IMAGE_MIN_H:
+            return self._render_hole_card_with_image(
+                img, draw, hole_number, hole_info, cw, ch,
+            )
+        return self._render_hole_card_compact(
+            img, draw, hole_number, hole_info, cw, ch,
+        )
 
-        # Left panel width for text info — wider on large tier, and wider
-        # still when we have lots of horizontal room to spare (e.g. 192x48).
-        if self.tier == "large":
-            left_w = 48 if self.is_wide_short else 38
-        else:
-            left_w = 28
+    def _render_hole_card_with_image(self, img, draw, hole_number: int,
+                                     hole_info: Dict, cw: int, ch: int) -> Image.Image:
+        """Large-canvas layout: single text column on the left + hole image on the right.
 
-        # ── Left panel: hole info ──
-        draw.rectangle([(0, 0), (left_w - 1, self.height - 1)], fill=COLORS["masters_dark"])
-        draw.line([(left_w - 1, 0), (left_w - 1, self.height)], fill=COLORS["masters_yellow"])
+        Text column contents (stacked top to bottom):
+            [Hole #, Hole Name (wrapped), Par, Yardage]
+        Zone badge is drawn as a small chip in the bottom-right over the image.
+        """
+        # Left panel width: wide enough to fit "Golden Bell" and par/yardage text.
+        # Grows with card width so 256x64 cards get more text room than 128x48.
+        left_w = max(38, min(56, cw // 3))
+
+        # Left panel background strip
+        draw.rectangle([(0, 0), (left_w - 1, ch - 1)], fill=COLORS["masters_dark"])
+        draw.line([(left_w - 1, 0), (left_w - 1, ch)], fill=COLORS["masters_yellow"])
 
         line_h = self._text_height(draw, "A", self.font_detail) + 1
         max_text_w = left_w - 4
@@ -276,7 +291,7 @@ class MastersRendererEnhanced(MastersRenderer):
         par_text = f"Par {hole_info['par']}"
         yard_text = f"{hole_info['yardage']}y"
         par_block_h = line_h * 2
-        par_y = self.height - par_block_h - 2
+        par_y = ch - par_block_h - 2
         pw = self._text_width(draw, par_text, self.font_detail)
         draw.text(((left_w - pw) // 2, par_y), par_text,
                   fill=COLORS["white"], font=self.font_detail)
@@ -285,7 +300,7 @@ class MastersRendererEnhanced(MastersRenderer):
                   fill=COLORS["light_gray"], font=self.font_detail)
         bottom_bound = par_y - 2
 
-        # Middle: hole name — fit in whatever space is left
+        # Middle: hole name — fit in whatever space is left between hole# and par
         name_text = hole_info["name"]
         name_slot = bottom_bound - top_bound
         max_lines = max(1, name_slot // line_h)
@@ -307,6 +322,7 @@ class MastersRendererEnhanced(MastersRenderer):
                     current = word
             if current:
                 name_lines.append(current)
+
         # Clamp to available lines; ellipsize the last surviving line if clipped.
         if len(name_lines) > max_lines:
             name_lines = name_lines[:max_lines]
@@ -314,13 +330,11 @@ class MastersRendererEnhanced(MastersRenderer):
             while last and self._text_width(draw, last + "..", self.font_detail) > max_text_w:
                 last = last[:-1]
             name_lines[-1] = (last + "..") if last else ".."
-        # Also shrink any single line that doesn't fit horizontally.
         for idx, line in enumerate(name_lines):
             while line and self._text_width(draw, line, self.font_detail) > max_text_w:
                 line = line[:-1]
             name_lines[idx] = line
 
-        # Vertically center the name block in its slot.
         block_h = len(name_lines) * line_h
         name_y = top_bound + max(0, (name_slot - block_h) // 2)
         for i, line in enumerate(name_lines):
@@ -328,10 +342,10 @@ class MastersRendererEnhanced(MastersRenderer):
             draw.text(((left_w - lw) // 2, name_y + i * line_h), line,
                       fill=COLORS["masters_yellow"], font=self.font_detail)
 
-        # ── Right side: hole layout image using full height ──
+        # Right side: hole layout image
         img_x = left_w + 2
-        img_w = self.width - img_x - 2
-        img_h = self.height - 4
+        img_w = cw - img_x - 2
+        img_h = ch - 4
         hole_img = self.logo_loader.get_hole_image(
             hole_number,
             max_width=img_w,
@@ -339,17 +353,17 @@ class MastersRendererEnhanced(MastersRenderer):
         )
         if hole_img:
             hx = img_x + (img_w - hole_img.width) // 2
-            hy = (self.height - hole_img.height) // 2
+            hy = (ch - hole_img.height) // 2
             img.paste(hole_img, (hx, hy), hole_img if hole_img.mode == "RGBA" else None)
 
-        # Zone badge at bottom-right corner (over the hole image area)
+        # Zone badge at bottom-right corner over the hole image
         zone = hole_info.get("zone")
         if zone and self.tier != "tiny":
             badge = zone.upper()
             bw = self._text_width(draw, badge, self.font_detail) + 4
-            bx = self.width - bw - 1
-            by = self.height - 9
-            draw.rectangle([(bx, by), (self.width - 1, self.height - 1)],
+            bx = cw - bw - 1
+            by = ch - 9
+            draw.rectangle([(bx, by), (cw - 1, ch - 1)],
                            fill=COLORS["masters_dark"])
             draw.text((bx + 2, by + 1), badge,
                       fill=COLORS["masters_yellow"], font=self.font_detail)
@@ -357,12 +371,13 @@ class MastersRendererEnhanced(MastersRenderer):
         return img
 
     def _render_hole_card_compact(self, img, draw, hole_number: int,
-                                  hole_info: Dict) -> Image.Image:
-        """Two-column compact hole card for short/small displays (e.g. 64x32).
+                                  hole_info: Dict,
+                                  cw: Optional[int] = None,
+                                  ch: Optional[int] = None) -> Image.Image:
+        """Two-column compact hole card for canvases too small for a hole image.
 
-        Drops the hole map image entirely — it's too small to read at this
-        size, and dedicating the canvas to text lets us show hole #, name,
-        par, yardage, and zone all without clipping.
+        Drops the hole map image entirely and dedicates the canvas to text
+        so hole #, name, par, yardage, and zone all fit without clipping.
 
         Layout:
             ┌─────────────┬─────────────┐
@@ -371,9 +386,14 @@ class MastersRendererEnhanced(MastersRenderer):
             │             │ AMEN CORNER │
             └─────────────┴─────────────┘
         """
-        col_w = self.width // 2
+        if cw is None:
+            cw = self.width
+        if ch is None:
+            ch = self.height
+
+        col_w = cw // 2
         # Divider
-        draw.line([(col_w, 1), (col_w, self.height - 2)],
+        draw.line([(col_w, 1), (col_w, ch - 2)],
                   fill=COLORS["masters_yellow"])
 
         line_h = self._text_height(draw, "A", self.font_detail) + 1
@@ -397,7 +417,7 @@ class MastersRendererEnhanced(MastersRenderer):
 
         # Right column: Par / yardage / zone stacked
         rx = col_w + 3
-        right_w = self.width - rx - 2
+        right_w = cw - rx - 2
         y = 1
         par_text = f"Par {hole_info['par']}"
         draw.text((rx, y), par_text,
@@ -410,7 +430,7 @@ class MastersRendererEnhanced(MastersRenderer):
         y += line_h
 
         zone = hole_info.get("zone")
-        if zone:
+        if zone and y + line_h <= ch:
             zone_text = zone.upper()
             while zone_text and self._text_width(draw, zone_text, self.font_detail) > right_w:
                 zone_text = zone_text[:-1]
