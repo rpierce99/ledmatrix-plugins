@@ -113,6 +113,18 @@ def _load_font(name: str) -> ImageFont.ImageFont:
     return ImageFont.load_default()
 
 
+def _load_font_sized(filename: str, size: int) -> Optional[ImageFont.ImageFont]:
+    """Load a specific TTF at an arbitrary point size, returning None on failure."""
+    path = _find_font_path(filename)
+    if not path:
+        return None
+    try:
+        return ImageFont.truetype(path, size)
+    except Exception as e:
+        logger.warning(f"Failed to load font {path}@{size}: {e}")
+        return None
+
+
 class MastersRenderer:
     """Broadcast-quality Masters Tournament renderer with pagination & scrolling."""
 
@@ -474,14 +486,21 @@ class MastersRenderer:
         draw.rectangle([(0, 0), (self.width - 1, self.height - 1)],
                        outline=COLORS["masters_yellow"])
 
+        raw_name = player.get("player", "Unknown")
+
+        # Wide-short layout: maximize use of the canvas. Headshot fills the
+        # full vertical minus padding; name/country/pos use fonts scaled to
+        # height; big score block hugs the right edge. Works for 192x48,
+        # 192x64, 256x64 and anything else aspect >= 2.5.
+        if self.is_wide_short:
+            return self._render_player_card_wide_short(img, draw, player, raw_name)
+
         x = 4
         y = 4
 
         # Headshot on left (sized to available vertical space)
         headshot_size = self.headshot_size
         if self.show_headshot:
-            # Clamp headshot so it + border fits inside the canvas with room
-            # above and below for padding.
             max_headshot = self.height - (2 * y) - 2
             headshot_size = min(headshot_size, max(16, max_headshot))
             headshot = self.logo_loader.get_player_headshot(
@@ -497,76 +516,15 @@ class MastersRenderer:
                 img.paste(headshot, (x, y),
                           headshot if headshot.mode == "RGBA" else None)
 
-        # Text area to the right of headshot
         tx = x + headshot_size + 6 if self.show_headshot else x
-        right_bound = self.width - 3
         bottom_bound = self.height - 3
 
-        # Player name - larger, with room to breathe
-        raw_name = player.get("player", "Unknown")
         if self.tier == "tiny":
             name = format_player_name(raw_name, 10)
         elif self.tier == "small":
             name = format_player_name(raw_name, 12)
         else:
-            # On wide-short panels we have horizontal room for a longer name.
-            name = format_player_name(raw_name, 18 if self.is_wide_short else 14)
-
-        # Wide-short layout: two text columns to the right of the headshot
-        # so we don't stack 5 text rows in 48px.
-        if self.is_wide_short:
-            score = player.get("score", 0)
-            score_text = format_score_to_par(score)
-            pos = player.get("position", "")
-            thru = player.get("thru", "")
-            country = player.get("country", "")
-
-            # Column 1: name on top, then country flag + code
-            self._text_shadow(draw, (tx, y), name, self.font_header, COLORS["white"])
-            yt1 = y + self._text_height(draw, name, self.font_header) + 3
-            if country:
-                flag = self._get_flag(country)
-                fx = tx
-                if flag:
-                    img.paste(flag, (fx, yt1), flag)
-                    fx += flag.width + 3
-                draw.text((fx, yt1), country,
-                          fill=COLORS["light_gray"], font=self.font_detail)
-                yt1 += max(flag.height if flag else 0,
-                           self._text_height(draw, country, self.font_detail)) + 2
-
-            # Position + thru underneath
-            if pos and yt1 + 9 <= bottom_bound:
-                pos_txt = f"Pos {pos}"
-                draw.text((tx, yt1), pos_txt,
-                          fill=COLORS["masters_yellow"], font=self.font_detail)
-                if thru:
-                    pos_w = self._text_width(draw, pos_txt, self.font_detail)
-                    draw.text((tx + pos_w + 6, yt1), f"Thru {thru}",
-                              fill=COLORS["white"], font=self.font_detail)
-
-            # Column 2: big score block, right-aligned
-            score_w = self._text_width(draw, score_text, self.font_score)
-            score_h = self._text_height(draw, score_text, self.font_score)
-            sx = right_bound - score_w - 2
-            sy = y + (self.height - score_h) // 2 - y
-            self._text_shadow(draw, (sx, sy), score_text,
-                              self.font_score, self._score_color(score))
-
-            # Green jacket strip along the bottom (only if there's room)
-            jacket_count = MULTIPLE_WINNERS.get(raw_name, 0)
-            if jacket_count > 0:
-                jy = bottom_bound - 8
-                if jy > yt1 + 2:
-                    jacket_icon = self.logo_loader.get_green_jacket_icon(size=7)
-                    jx = tx
-                    if jacket_icon:
-                        img.paste(jacket_icon, (jx, jy),
-                                  jacket_icon if jacket_icon.mode == "RGBA" else None)
-                        jx += 9
-                    draw.text((jx, jy), f"x{jacket_count}",
-                              fill=COLORS["masters_yellow"], font=self.font_detail)
-            return img
+            name = format_player_name(raw_name, 14)
 
         # Standard (tall) vertical-stack layout
         self._text_shadow(draw, (tx, y), name, self.font_header, COLORS["white"])
@@ -623,6 +581,204 @@ class MastersRenderer:
                     jx += 10
                 draw.text((jx, jy), f"x{jacket_count} Green Jackets",
                           fill=COLORS["masters_yellow"], font=self.font_detail)
+
+        return img
+
+    def _fit_name(self, draw, raw_name: str, max_width: int,
+                  max_height: int) -> Tuple[ImageFont.ImageFont, str, int]:
+        """Pick the biggest font + display form where the full name fits.
+
+        Tries PressStart2P (blockier, bigger) first at descending sizes, then
+        the narrower 4x6-font, for each candidate display string:
+            1. Full name               ("Scottie Scheffler")
+            2. First initial + last    ("S. Scheffler")
+            3. Last name only          ("Scheffler")
+        Only falls back to mid-word truncation if literally nothing fits.
+        Returns (font, display_string, rendered_height).
+        """
+        parts = raw_name.split()
+        full = raw_name.strip() or "?"
+        last = parts[-1] if parts else full
+        initial_last = f"{parts[0][0]}. {last}" if len(parts) > 1 else full
+        candidates = [full, initial_last, last]
+
+        # Try big fonts first, shrinking as needed. Cap each candidate font
+        # at max_height so we don't overflow vertically.
+        sizes_press = [16, 14, 12, 10, 8]
+        sizes_4x6 = [14, 12, 10, 8, 7, 6]
+
+        font_trials: List[Tuple[str, int]] = []
+        for s in sizes_press:
+            font_trials.append(("PressStart2P-Regular.ttf", s))
+        for s in sizes_4x6:
+            font_trials.append(("4x6-font.ttf", s))
+
+        best_fallback = None
+        for filename, size in font_trials:
+            font = _load_font_sized(filename, size)
+            if font is None:
+                continue
+            line_h = self._text_height(draw, "A", font)
+            if line_h > max_height:
+                continue
+            for candidate in candidates:
+                if self._text_width(draw, candidate, font) <= max_width:
+                    return font, candidate, line_h
+            # Remember the biggest font where even the last-name form was
+            # the only option we could still truncate from.
+            if best_fallback is None:
+                best_fallback = (font, last, line_h)
+
+        # Nothing fits cleanly — truncate the last name in the smallest
+        # surviving font (or 4x6 size 6 as an ultimate fallback).
+        if best_fallback is None:
+            font = _load_font_sized("4x6-font.ttf", 6) or self.font_detail
+            return font, last, self._text_height(draw, "A", font)
+
+        font, text, h = best_fallback
+        while text and self._text_width(draw, text, font) > max_width:
+            text = text[:-1]
+        return font, text, h
+
+    def _render_player_card_wide_short(self, img, draw, player, raw_name):
+        """Maximize canvas usage for wide-short player cards.
+
+        Sizes scale from actual width/height:
+          - headshot fills height minus padding (e.g. 40px tall on 48-tall,
+            56px on 64-tall, 22px on 32-tall)
+          - name font is ~1/5 of height, loaded dynamically
+          - score font is ~1/3 of height, loaded dynamically
+          - flag height matches the country label font
+
+        Layout columns (left → right):
+          [ headshot ] [ name / flag+country / pos+thru ] [ big score ]
+        """
+        padding = max(3, self.height // 16)
+        bottom_bound = self.height - padding
+
+        # Headshot — fill the vertical budget, but also cap horizontally so
+        # narrow wide-short panels (e.g. 128x48) leave enough room for the
+        # name + score columns. The /4 cap ties the headshot to available
+        # width, so on 128x48 it shrinks to 32px while 192x48 keeps 42px.
+        headshot_size = max(16, min(self.height - 2 * padding, self.width // 4))
+        hx = padding
+        hy = padding
+        if self.show_headshot:
+            headshot = self.logo_loader.get_player_headshot(
+                player.get("player_id", ""),
+                player.get("headshot_url"),
+                max_size=headshot_size,
+            )
+            if headshot:
+                # Center the actual image in the reserved slot in case the
+                # loader returned something smaller than max_size.
+                hpx = hx + (headshot_size - headshot.width) // 2
+                hpy = hy + (headshot_size - headshot.height) // 2
+                draw.rectangle(
+                    [hx - 1, hy - 1, hx + headshot_size, hy + headshot_size],
+                    outline=COLORS["masters_yellow"],
+                )
+                img.paste(headshot, (hpx, hpy),
+                          headshot if headshot.mode == "RGBA" else None)
+
+        # Proportional font sizes. Score scales with BOTH height and width so
+        # narrow wide-short displays (e.g. 128x48) don't let the score eat
+        # the entire text column.
+        score_px = max(10, min(24, int(self.height // 2.4), self.width // 8))
+        detail_px = max(6, min(10, self.height // 7))
+
+        score_font = _load_font_sized("PressStart2P-Regular.ttf", score_px) or self.font_score
+        detail_font = _load_font_sized("4x6-font.ttf", detail_px) or self.font_detail
+
+        # Reserve the right-hand score block width based on the actual score text.
+        score = player.get("score", 0)
+        score_text = format_score_to_par(score)
+        score_w = self._text_width(draw, score_text, score_font)
+        score_h = self._text_height(draw, score_text, score_font)
+        score_block_w = score_w + padding * 2
+        score_x = self.width - score_w - padding - 1
+        score_y = (self.height - score_h) // 2
+        self._text_shadow(draw, (score_x, score_y), score_text,
+                          score_font, self._score_color(score))
+
+        # Faint separator before the score column
+        sep_x = self.width - score_block_w - 1
+        draw.line([(sep_x, padding), (sep_x, bottom_bound)],
+                  fill=COLORS["masters_dark"])
+
+        # Text column between the headshot and the score separator
+        tx = hx + headshot_size + padding + 3
+        tx_right = sep_x - 3
+        text_w = tx_right - tx
+
+        # Name font: pick the biggest candidate where the full name fits.
+        # PressStart2P is nearly monospace so it shows ~7 chars per 96px at
+        # size 12; 4x6-font is much narrower. We try several sizes of each
+        # and fall back to truncation only if nothing fits.
+        name_font, name_display, name_h = self._fit_name(
+            draw, raw_name, text_w, max_height=self.height // 3,
+        )
+
+        ty = padding
+        self._text_shadow(draw, (tx, ty), name_display, name_font, COLORS["white"])
+        ty += name_h + max(3, self.height // 16)
+
+        # Country flag + code
+        country = player.get("country", "")
+        detail_h = self._text_height(draw, "A", detail_font)
+        if country and ty + detail_h <= bottom_bound:
+            flag = self._get_flag(country)
+            fx = tx
+            if flag:
+                # Vertically center flag against the country label line
+                flag_y = ty + max(0, (detail_h - flag.height) // 2)
+                img.paste(flag, (fx, flag_y), flag)
+                fx += flag.width + 3
+            draw.text((fx, ty), country,
+                      fill=COLORS["light_gray"], font=detail_font)
+            row_h = max(flag.height if flag else 0, detail_h)
+            ty += row_h + 2
+
+        # Pos + Thru row — clip to text column so we don't bleed into score.
+        pos = player.get("position", "")
+        thru = player.get("thru", "")
+        if pos and ty + detail_h <= bottom_bound:
+            pos_text = f"POS {pos}"
+            pos_w = self._text_width(draw, pos_text, detail_font)
+            if tx + pos_w <= tx_right:
+                draw.text((tx, ty), pos_text,
+                          fill=COLORS["masters_yellow"], font=detail_font)
+            if thru:
+                thru_text = f"THRU {thru}"
+                thru_x = tx + pos_w + 8
+                if thru_x + self._text_width(draw, thru_text, detail_font) > tx_right:
+                    # Try the shorter form on the next line instead of clobbering the score
+                    thru_text = str(thru)
+                    thru_x = tx + pos_w + 6
+                if thru_x + self._text_width(draw, thru_text, detail_font) <= tx_right:
+                    draw.text((thru_x, ty), thru_text,
+                              fill=COLORS["white"], font=detail_font)
+            ty += detail_h + 1
+
+        # Green jacket strip along the bottom if there's room
+        jacket_count = MULTIPLE_WINNERS.get(raw_name, 0)
+        if jacket_count > 0:
+            jy = bottom_bound - detail_h
+            if jy > ty + 1:
+                jacket_icon = self.logo_loader.get_green_jacket_icon(
+                    size=max(7, detail_h)
+                )
+                jx = tx
+                if jacket_icon:
+                    img.paste(jacket_icon, (jx, jy),
+                              jacket_icon if jacket_icon.mode == "RGBA" else None)
+                    jx += jacket_icon.width + 2
+                jacket_text = f"x{jacket_count} GREEN JACKETS"
+                # Shorter label if the long one won't fit
+                if self._text_width(draw, jacket_text, detail_font) > tx_right - jx:
+                    jacket_text = f"x{jacket_count}"
+                draw.text((jx, jy), jacket_text,
+                          fill=COLORS["masters_yellow"], font=detail_font)
 
         return img
 
