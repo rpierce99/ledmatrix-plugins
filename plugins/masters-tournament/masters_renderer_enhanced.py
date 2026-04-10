@@ -276,11 +276,18 @@ class MastersRendererEnhanced(MastersRenderer):
         """
         # Left panel width: wide enough to fit "Golden Bell" and par/yardage text.
         # Grows with card width so 256x64 cards get more text room than 128x48.
+        # If the card is too narrow for a useful image, let text fill the width.
         left_w = max(38, min(56, cw // 3))
+        img_w = cw - left_w - 4
+        if img_w < 20:
+            left_w = cw
+
+        show_image = left_w < cw
 
         # Left panel background strip
         draw.rectangle([(0, 0), (left_w - 1, ch - 1)], fill=COLORS["masters_dark"])
-        draw.line([(left_w - 1, 0), (left_w - 1, ch)], fill=COLORS["masters_yellow"])
+        if show_image:
+            draw.line([(left_w - 1, 0), (left_w - 1, ch)], fill=COLORS["masters_yellow"])
 
         line_h = self._text_height(draw, "A", self.font_detail) + 1
         max_text_w = left_w - 4
@@ -348,31 +355,32 @@ class MastersRendererEnhanced(MastersRenderer):
             draw.text(((left_w - lw) // 2, name_y + i * line_h), line,
                       fill=COLORS["masters_yellow"], font=self.font_detail)
 
-        # Right side: hole layout image
-        img_x = left_w + 2
-        img_w = cw - img_x - 2
-        img_h = ch - 4
-        hole_img = self.logo_loader.get_hole_image(
-            hole_number,
-            max_width=img_w,
-            max_height=img_h,
-        )
-        if hole_img:
-            hx = img_x + (img_w - hole_img.width) // 2
-            hy = (ch - hole_img.height) // 2
-            img.paste(hole_img, (hx, hy), hole_img if hole_img.mode == "RGBA" else None)
+        if show_image:
+            # Right side: hole layout image
+            img_x = left_w + 2
+            actual_img_w = cw - img_x - 2
+            img_h = ch - 4
+            hole_img = self.logo_loader.get_hole_image(
+                hole_number,
+                max_width=actual_img_w,
+                max_height=img_h,
+            )
+            if hole_img:
+                hx = img_x + (actual_img_w - hole_img.width) // 2
+                hy = (ch - hole_img.height) // 2
+                img.paste(hole_img, (hx, hy), hole_img if hole_img.mode == "RGBA" else None)
 
-        # Zone badge at bottom-right corner over the hole image
-        zone = hole_info.get("zone")
-        if zone and self.tier != "tiny":
-            badge = zone.upper()
-            bw = self._text_width(draw, badge, self.font_detail) + 4
-            bx = cw - bw - 1
-            by = ch - 9
-            draw.rectangle([(bx, by), (cw - 1, ch - 1)],
-                           fill=COLORS["masters_dark"])
-            draw.text((bx + 2, by + 1), badge,
-                      fill=COLORS["masters_yellow"], font=self.font_detail)
+            # Zone badge at bottom-right corner over the hole image
+            zone = hole_info.get("zone")
+            if zone and self.tier != "tiny":
+                badge = zone.upper()
+                bw = self._text_width(draw, badge, self.font_detail) + 4
+                bx = cw - bw - 1
+                by = ch - 9
+                draw.rectangle([(bx, by), (cw - 1, ch - 1)],
+                               fill=COLORS["masters_dark"])
+                draw.text((bx + 2, by + 1), badge,
+                          fill=COLORS["masters_yellow"], font=self.font_detail)
 
         return img
 
@@ -400,10 +408,16 @@ class MastersRendererEnhanced(MastersRenderer):
         text_font = _load_bdf_font("5x7.bdf") or self.font_detail
         hole_font = _load_bdf_font("5x7.bdf") or self.font_body
 
-        # Text takes ~half, image gets the rest
-        text_w = max(36, cw // 2)
+        # Text takes ~half, image gets the rest.
+        # If the card is too narrow for both columns, skip the image.
+        min_text_w = 36
+        min_img_w = 20
+        text_w = max(min_text_w, cw // 2)
+        img_w = cw - text_w - 2
+        show_image = img_w >= min_img_w
+        if not show_image:
+            text_w = cw
         img_x = text_w + 1
-        img_w = cw - img_x - 1
         max_text_w = text_w - 3
 
         line_h = self._text_height(draw, "Ag", text_font) + 1
@@ -440,19 +454,20 @@ class MastersRendererEnhanced(MastersRenderer):
             draw.text((1, y), zone_text,
                       fill=COLORS["masters_yellow"], font=text_font)
 
-        # Divider between text and image
-        draw.line([(text_w, 0), (text_w, ch - 1)],
-                  fill=COLORS["masters_yellow"])
+        if show_image:
+            # Divider between text and image
+            draw.line([(text_w, 0), (text_w, ch - 1)],
+                      fill=COLORS["masters_yellow"])
 
-        # Course image on the right
-        hole_img = self.logo_loader.get_hole_image(
-            hole_number, max_width=img_w, max_height=ch - 2,
-        )
-        if hole_img:
-            hx = img_x + (img_w - hole_img.width) // 2
-            hy = (ch - hole_img.height) // 2
-            img.paste(hole_img, (hx, hy),
-                      hole_img if hole_img.mode == "RGBA" else None)
+            # Course image on the right
+            hole_img = self.logo_loader.get_hole_image(
+                hole_number, max_width=img_w, max_height=ch - 2,
+            )
+            if hole_img:
+                hx = img_x + (img_w - hole_img.width) // 2
+                hy = (ch - hole_img.height) // 2
+                img.paste(hole_img, (hx, hy),
+                          hole_img if hole_img.mode == "RGBA" else None)
 
         return img
 

@@ -153,6 +153,24 @@ _BDF_FONT_CACHE: Dict[str, Optional[ImageFont.ImageFont]] = {}
 _BDF_TEMP_DIR: Optional[str] = None
 
 
+def _cleanup_bdf_temp() -> None:
+    """Remove the BDF temp directory on process exit."""
+    global _BDF_TEMP_DIR
+    if _BDF_TEMP_DIR is None:
+        return
+    try:
+        import shutil
+        shutil.rmtree(_BDF_TEMP_DIR, ignore_errors=True)
+    except Exception:
+        pass
+    _BDF_TEMP_DIR = None
+    _BDF_FONT_CACHE.clear()
+
+
+import atexit
+atexit.register(_cleanup_bdf_temp)
+
+
 def _load_bdf_font(filename: str) -> Optional[ImageFont.ImageFont]:
     """Load a BDF bitmap font and return it as an ImageFont.
 
@@ -1071,6 +1089,37 @@ class MastersRenderer:
     # ═══════════════════════════════════════════════════════════
     # FUN FACTS - Scrolling text
     # ═══════════════════════════════════════════════════════════
+
+    def get_fun_fact_line_count(self, fact_index: int,
+                               card_width: Optional[int] = None,
+                               card_height: Optional[int] = None) -> tuple:
+        """Return (total_lines, visible_lines) for a fun fact at this display size."""
+        cw = card_width if card_width is not None else self.width
+        ch = card_height if card_height is not None else self.height
+
+        fact = get_fun_fact_by_index(fact_index)
+        tmp = Image.new("RGB", (1, 1))
+        draw = ImageDraw.Draw(tmp)
+
+        font = self.font_detail
+        line_h = self._text_height(draw, "Ag", font) + 2
+        max_w = cw - 10
+        content_top = self.header_height + 4
+
+        words = fact.split()
+        lines = 1
+        current_line = ""
+        for word in words:
+            test = f"{current_line} {word}".strip()
+            if self._text_width(draw, test, font) <= max_w:
+                current_line = test
+            else:
+                if current_line:
+                    lines += 1
+                current_line = word
+
+        visible = max(1, (ch - content_top - 4) // line_h)
+        return lines, visible
 
     def render_fun_fact(self, fact_index: int = -1, scroll_offset: int = 0,
                         card_width: Optional[int] = None,

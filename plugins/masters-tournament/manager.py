@@ -508,12 +508,11 @@ class MastersTournamentPlugin(BasePlugin):
         if now - self._last_fact_advance >= self._fact_advance_interval:
             self._fact_scroll += 1
             self._last_fact_advance = now
-        # Calculate how many scroll steps are needed based on display height.
-        # Each step reveals one more line; we need enough steps to show all
-        # wrapped lines of the longest facts (~12 lines at 64px wide).
-        line_h = 8  # approximate height of detail font + spacing
-        visible = max(1, (self.display_height - self.renderer.header_height - 8) // line_h)
-        max_scroll = max(5, 15 // visible)
+        # Derive scroll steps from actual wrapped line count for this fact.
+        total_lines, visible = self.renderer.get_fun_fact_line_count(
+            self._fact_index,
+        )
+        max_scroll = max(1, total_lines - visible + 1)
         if self._fact_scroll > max_scroll:
             self._fact_index += 1
             self._fact_scroll = 0
