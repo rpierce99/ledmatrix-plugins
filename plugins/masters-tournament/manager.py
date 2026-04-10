@@ -124,7 +124,7 @@ class MastersTournamentPlugin(BasePlugin):
         self._last_hole_advance = {}  # per-mode hole timers
         self._hole_switch_interval = config.get("hole_display_duration", 15)
         self._last_fact_advance = 0
-        self._fact_advance_interval = 2  # seconds between scroll steps
+        self._fact_advance_interval = 3  # seconds between scroll steps
         self._last_page_advance = {}  # per-mode page timers
         self._page_interval = config.get("page_display_duration", 15)
 
@@ -508,8 +508,13 @@ class MastersTournamentPlugin(BasePlugin):
         if now - self._last_fact_advance >= self._fact_advance_interval:
             self._fact_scroll += 1
             self._last_fact_advance = now
-        # Move to next fact after scrolling through
-        if self._fact_scroll > 5:
+        # Calculate how many scroll steps are needed based on display height.
+        # Each step reveals one more line; we need enough steps to show all
+        # wrapped lines of the longest facts (~12 lines at 64px wide).
+        line_h = 8  # approximate height of detail font + spacing
+        visible = max(1, (self.display_height - self.renderer.header_height - 8) // line_h)
+        max_scroll = max(5, 15 // visible)
+        if self._fact_scroll > max_scroll:
             self._fact_index += 1
             self._fact_scroll = 0
         return result
@@ -570,13 +575,18 @@ class MastersTournamentPlugin(BasePlugin):
             if card:
                 cards.append(card)
 
-        # Fun facts
-        for i in range(5):
-            card = self.renderer.render_fun_fact(
-                i, card_width=cw, card_height=ch,
-            )
-            if card:
-                cards.append(card)
+        # Fun facts — respect user's enabled setting.
+        # Use single-line wide cards so horizontal scroll reveals the full text.
+        fun_facts_enabled = self.config.get("display_modes", {}).get(
+            "fun_facts", {}
+        ).get("enabled", True)
+        if fun_facts_enabled:
+            for i in range(5):
+                card = self.renderer.render_fun_fact_vegas(
+                    i, card_height=ch,
+                )
+                if card:
+                    cards.append(card)
 
         return cards if cards else None
 

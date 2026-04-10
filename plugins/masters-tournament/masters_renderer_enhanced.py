@@ -261,6 +261,7 @@ class MastersRendererEnhanced(MastersRenderer):
             return self._render_hole_card_with_image(
                 img, draw, hole_number, hole_info, cw, ch,
             )
+
         return self._render_hole_card_compact(
             img, draw, hole_number, hole_info, cw, ch,
         )
@@ -381,85 +382,77 @@ class MastersRendererEnhanced(MastersRenderer):
                                   ch: Optional[int] = None) -> Image.Image:
         """Compact hole card for vertical resolutions below 48px.
 
-        Par and Yards sit to the RIGHT of Hole#/Name instead of underneath
-        so everything fits in less vertical space. Zone badge is drawn
-        under Par/Yards when there's room.
+        All text stacked on the left, course image on the right.
 
         Layout:
-            ┌─────────────┬─────────────┐
-            │   #12       │   Par 3     │
-            │ Golden Bell │   155y      │
-            │             │ (AMEN COR)  │
-            └─────────────┴─────────────┘
-
-        Uses the 5by7 font for the text — slightly narrower than the
-        default 4x6 so long hole names like "Golden Bell" fit more
-        comfortably in the left column.
+            ┌──────────────┬────────────┐
+            │ #12          │            │
+            │ Golden Bell  │  [course]  │
+            │ Par 3  155y  │  [ map  ]  │
+            │ AMEN CORNER  │            │
+            └──────────────┴────────────┘
         """
         if cw is None:
             cw = self.width
         if ch is None:
             ch = self.height
 
-        # 5x7 BDF bitmap font — pixel-perfect at native 5x7 size. PIL's TTF
-        # anti-aliasing washes out small pixel fonts, so we load the BDF
-        # directly via PIL.BdfFontFile for crisp 1:1 glyph rendering. Falls
-        # back to self.font_detail / self.font_body if the BDF file isn't on
-        # the search path.
         text_font = _load_bdf_font("5x7.bdf") or self.font_detail
         hole_font = _load_bdf_font("5x7.bdf") or self.font_body
 
-        # --- LEGACY 4x6 path, kept commented for quick revert if the 5x7
-        # --- BDF causes issues on the Pi. Swap the two blocks to revert.
-        # text_font = _load_font_sized("4x6-font.ttf", 7) or self.font_detail
-        # hole_font = _load_font_sized("4x6-font.ttf", 8) or self.font_body
-
-        col_w = cw // 2
-        # Divider
-        draw.line([(col_w, 1), (col_w, ch - 2)],
-                  fill=COLORS["masters_yellow"])
+        # Text takes ~half, image gets the rest
+        text_w = max(36, cw // 2)
+        img_x = text_w + 1
+        img_w = cw - img_x - 1
+        max_text_w = text_w - 3
 
         line_h = self._text_height(draw, "Ag", text_font) + 1
+        y = 0
 
-        # ── Left column: hole number (top) + name (underneath) ──
+        # Hole number
         hole_text = f"#{hole_number}"
-        hw = self._text_width(draw, hole_text, hole_font)
-        hole_h = self._text_height(draw, hole_text, hole_font)
-        draw.text(((col_w - hw) // 2, 1), hole_text,
+        draw.text((1, y), hole_text,
                   fill=COLORS["white"], font=hole_font)
+        y += line_h
 
+        # Hole name
         name_text = hole_info["name"]
-        max_name_w = col_w - 4
-        while name_text and self._text_width(draw, name_text, text_font) > max_name_w:
+        while name_text and self._text_width(draw, name_text, text_font) > max_text_w:
             name_text = name_text[:-1]
-        name_y = 1 + hole_h + 2
-        nw = self._text_width(draw, name_text, text_font)
-        draw.text(((col_w - nw) // 2, name_y), name_text,
+        draw.text((1, y), name_text,
                   fill=COLORS["masters_yellow"], font=text_font)
+        y += line_h
 
-        # ── Right column: Par / yardage [/ zone] stacked ──
-        rx = col_w + 3
-        right_w = cw - rx - 2
-        y = 1
-
-        par_text = f"Par {hole_info['par']}"
-        draw.text((rx, y), par_text,
+        # Par + yardage on same line
+        info_text = f"Par {hole_info['par']}  {hole_info['yardage']}y"
+        while info_text and self._text_width(draw, info_text, text_font) > max_text_w:
+            info_text = info_text[:-1]
+        draw.text((1, y), info_text,
                   fill=COLORS["white"], font=text_font)
         y += line_h
 
-        yard_text = f"{hole_info['yardage']}y"
-        draw.text((rx, y), yard_text,
-                  fill=COLORS["light_gray"], font=text_font)
-        y += line_h
-
-        # Zone only if there's a full text row of headroom left
+        # Zone if room
         zone = hole_info.get("zone")
-        if zone and y + line_h <= ch - 1:
+        if zone and y + line_h <= ch:
             zone_text = zone.upper()
-            while zone_text and self._text_width(draw, zone_text, text_font) > right_w:
+            while zone_text and self._text_width(draw, zone_text, text_font) > max_text_w:
                 zone_text = zone_text[:-1]
-            draw.text((rx, y), zone_text,
+            draw.text((1, y), zone_text,
                       fill=COLORS["masters_yellow"], font=text_font)
+
+        # Divider between text and image
+        draw.line([(text_w, 0), (text_w, ch - 1)],
+                  fill=COLORS["masters_yellow"])
+
+        # Course image on the right
+        hole_img = self.logo_loader.get_hole_image(
+            hole_number, max_width=img_w, max_height=ch - 2,
+        )
+        if hole_img:
+            hx = img_x + (img_w - hole_img.width) // 2
+            hy = (ch - hole_img.height) // 2
+            img.paste(hole_img, (hx, hy),
+                      hole_img if hole_img.mode == "RGBA" else None)
 
         return img
 
