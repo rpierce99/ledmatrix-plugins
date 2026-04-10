@@ -1103,6 +1103,9 @@ class MastersRenderer:
         for word in words:
             # Break oversized words into chunks that fit.
             if self._text_width(draw, word, font) > max_w:
+                if current_line:
+                    lines.append(current_line)
+                    current_line = ""
                 for ch in word:
                     test = current_line + ch
                     if self._text_width(draw, test, font) <= max_w:
