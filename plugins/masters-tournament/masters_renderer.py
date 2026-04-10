@@ -1327,11 +1327,34 @@ class MastersRenderer:
                 y += self.row_height + 1
 
                 players = entry.get("players", []) or []
-                for p in players[:player_rows]:
-                    name = format_player_name(p, name_budget)
-                    while name and self._text_width(draw, name, self.font_detail) > (cx_right - cx - 3):
-                        name = name[:-1]
-                    draw.text((cx + 3, y), name,
+                max_name_w = cx_right - cx - 3
+                if len(players) <= player_rows:
+                    # All players fit on their own line
+                    for p in players:
+                        name = format_player_name(p, name_budget)
+                        while name and self._text_width(draw, name, self.font_detail) > max_name_w:
+                            name = name[:-1]
+                        draw.text((cx + 3, y), name,
+                                  fill=COLORS["white"], font=self.font_detail)
+                        y += detail_h
+                else:
+                    # More players than rows — show first (player_rows-1)
+                    # individually, fold the rest into the last line.
+                    solo = max(0, player_rows - 1)
+                    for p in players[:solo]:
+                        name = format_player_name(p, name_budget)
+                        while name and self._text_width(draw, name, self.font_detail) > max_name_w:
+                            name = name[:-1]
+                        draw.text((cx + 3, y), name,
+                                  fill=COLORS["white"], font=self.font_detail)
+                        y += detail_h
+                    # Last line: remaining players comma-separated
+                    overflow = ", ".join(
+                        format_player_name(p, name_budget) for p in players[solo:]
+                    )
+                    while overflow and self._text_width(draw, overflow, self.font_detail) > max_name_w:
+                        overflow = overflow[:-1]
+                    draw.text((cx + 3, y), overflow,
                               fill=COLORS["white"], font=self.font_detail)
                     y += detail_h
         else:
