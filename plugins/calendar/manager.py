@@ -13,7 +13,7 @@ Features:
 - Timezone-aware formatting
 - Text wrapping for long event titles
 
-API Version: 1.0.0
+API Version: 1.0.1
 """
 
 import os
@@ -423,17 +423,18 @@ class CalendarPlugin(BasePlugin):
             # Fetch events from all configured calendars
             all_events = []
             
+            # Compute time_min once so all calendars use the same boundary
+            if self.timezone and pytz:
+                local_now = datetime.now(self.timezone)
+                start_of_today = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+                time_min = start_of_today.astimezone(pytz.utc).strftime('%Y-%m-%dT%H:%M:%S') + 'Z'
+            else:
+                time_min = datetime.utcnow().replace(
+                    hour=0, minute=0, second=0, microsecond=0
+                ).isoformat() + 'Z'
+
             for calendar_id in self.calendars:
                 try:
-                    # Use start of today (in user's timezone) so already-started events still appear
-                    if self.timezone and pytz:
-                        local_now = datetime.now(self.timezone)
-                        start_of_today = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
-                        time_min = start_of_today.astimezone(pytz.utc).strftime('%Y-%m-%dT%H:%M:%S') + 'Z'
-                    else:
-                        time_min = datetime.utcnow().replace(
-                            hour=0, minute=0, second=0, microsecond=0
-                        ).isoformat() + 'Z'
                     events_result = self.service.events().list(
                         calendarId=calendar_id,
                         timeMin=time_min,
