@@ -513,7 +513,7 @@ class MastersTournamentPlugin(BasePlugin):
             self._fact_index,
         )
         max_scroll = max(1, total_lines - visible + 1)
-        if self._fact_scroll > max_scroll:
+        if self._fact_scroll >= max_scroll:
             self._fact_index += 1
             self._fact_scroll = 0
         return result

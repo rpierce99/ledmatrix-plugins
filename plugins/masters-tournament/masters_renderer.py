@@ -160,11 +160,12 @@ def _cleanup_bdf_temp() -> None:
         return
     try:
         import shutil
-        shutil.rmtree(_BDF_TEMP_DIR, ignore_errors=True)
-    except Exception:
-        pass
-    _BDF_TEMP_DIR = None
-    _BDF_FONT_CACHE.clear()
+        shutil.rmtree(_BDF_TEMP_DIR)
+    except Exception as e:
+        logger.debug("Failed to remove BDF temp dir %s: %s", _BDF_TEMP_DIR, e)
+    finally:
+        _BDF_TEMP_DIR = None
+        _BDF_FONT_CACHE.clear()
 
 
 import atexit
@@ -1090,6 +1091,24 @@ class MastersRenderer:
     # FUN FACTS - Scrolling text
     # ═══════════════════════════════════════════════════════════
 
+    def _wrap_text(self, text: str, max_w: int,
+                   font, draw) -> List[str]:
+        """Word-wrap *text* to fit within *max_w* pixels using *font*."""
+        words = text.split()
+        lines: List[str] = []
+        current_line = ""
+        for word in words:
+            test = f"{current_line} {word}".strip()
+            if self._text_width(draw, test, font) <= max_w:
+                current_line = test
+            else:
+                if current_line:
+                    lines.append(current_line)
+                current_line = word
+        if current_line:
+            lines.append(current_line)
+        return lines
+
     def get_fun_fact_line_count(self, fact_index: int,
                                card_width: Optional[int] = None,
                                card_height: Optional[int] = None) -> tuple:
@@ -1103,23 +1122,11 @@ class MastersRenderer:
 
         font = self.font_detail
         line_h = self._text_height(draw, "Ag", font) + 2
-        max_w = cw - 10
         content_top = self.header_height + 4
 
-        words = fact.split()
-        lines = 1
-        current_line = ""
-        for word in words:
-            test = f"{current_line} {word}".strip()
-            if self._text_width(draw, test, font) <= max_w:
-                current_line = test
-            else:
-                if current_line:
-                    lines += 1
-                current_line = word
-
+        lines = self._wrap_text(fact, cw - 10, font, draw)
         visible = max(1, (ch - content_top - 4) // line_h)
-        return lines, visible
+        return len(lines), visible
 
     def render_fun_fact(self, fact_index: int = -1, scroll_offset: int = 0,
                         card_width: Optional[int] = None,
@@ -1151,23 +1158,12 @@ class MastersRenderer:
         line_h = self._text_height(draw, "Ag", font) + 2  # Extra line spacing
         max_w = cw - 10  # More horizontal padding
 
-        words = fact.split()
-        lines = []
-        current_line = ""
-        for word in words:
-            test = f"{current_line} {word}".strip()
-            if self._text_width(draw, test, font) <= max_w:
-                current_line = test
-            else:
-                if current_line:
-                    lines.append(current_line)
-                current_line = word
-        if current_line:
-            lines.append(current_line)
+        lines = self._wrap_text(fact, max_w, font, draw)
+        total_lines = len(lines)
 
         # Apply scroll offset (for long facts)
         visible_lines = max(1, (ch - content_top - 4) // line_h)
-        if len(lines) > visible_lines:
+        if total_lines > visible_lines:
             start_line = scroll_offset % max(1, len(lines) - visible_lines + 1)
             lines = lines[start_line : start_line + visible_lines]
 
@@ -1178,7 +1174,7 @@ class MastersRenderer:
             y += line_h
 
         # Scroll indicator if text is long
-        if len(words) > visible_lines * 4:  # Rough heuristic
+        if total_lines > visible_lines:
             # Small down arrow
             ax = cw - 6
             ay = ch - 6
