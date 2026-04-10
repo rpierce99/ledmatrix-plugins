@@ -1093,11 +1093,25 @@ class MastersRenderer:
 
     def _wrap_text(self, text: str, max_w: int,
                    font, draw) -> List[str]:
-        """Word-wrap *text* to fit within *max_w* pixels using *font*."""
+        """Word-wrap *text* to fit within *max_w* pixels using *font*.
+
+        Words wider than *max_w* are broken at character boundaries.
+        """
         words = text.split()
         lines: List[str] = []
         current_line = ""
         for word in words:
+            # Break oversized words into chunks that fit.
+            if self._text_width(draw, word, font) > max_w:
+                for ch in word:
+                    test = current_line + ch
+                    if self._text_width(draw, test, font) <= max_w:
+                        current_line = test
+                    else:
+                        if current_line:
+                            lines.append(current_line)
+                        current_line = ch
+                continue
             test = f"{current_line} {word}".strip()
             if self._text_width(draw, test, font) <= max_w:
                 current_line = test
