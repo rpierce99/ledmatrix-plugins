@@ -21,9 +21,11 @@ from masters_renderer import MastersRenderer
 from masters_renderer_enhanced import MastersRendererEnhanced
 from logo_loader import MastersLogoLoader
 from masters_helpers import (
+    AUGUSTA_HOLES,
     calculate_tournament_countdown,
     filter_favorite_players,
     get_detailed_phase,
+    get_score_description,
     get_tournament_phase,
     sort_leaderboard,
 )
@@ -132,6 +134,15 @@ class MastersTournamentPlugin(BasePlugin):
         self._player_card_index = 0
         self._last_player_card_advance = 0.0
         self._player_card_interval = config.get("player_card_duration", 8)
+
+        # Live alert detection — track score changes between updates
+        self._previous_scores: Dict[str, int] = {}  # player_name -> score
+        self._alert_queue: List[Dict] = []  # pending birdie/eagle alerts
+        self._alert_index = 0
+        self._last_alert_advance = 0.0
+        self._alert_dwell = config.get("display_modes", {}).get(
+            "live_action", {}
+        ).get("duration", 10)
 
         # Vegas scroll mode: fixed card block width. Cards render at
         # (scroll_card_width × display_height) regardless of the panel width
@@ -331,6 +342,9 @@ class MastersTournamentPlugin(BasePlugin):
 
         sorted_board = sort_leaderboard(raw_leaderboard)
 
+        # Detect score changes for live alerts before filtering
+        self._detect_score_changes(sorted_board)
+
         favorites = self.config.get("favorite_players", [])
         top_n = self.config.get("display_modes", {}).get("leaderboard", {}).get("top_n", 10)
         always_show = self.config.get("display_modes", {}).get("leaderboard", {}).get(
@@ -341,6 +355,50 @@ class MastersTournamentPlugin(BasePlugin):
             sorted_board, favorites, top_n=top_n, always_show_favorites=always_show
         )
         self.logger.debug(f"Updated leaderboard with {len(self._leaderboard_data)} players")
+
+    def _detect_score_changes(self, leaderboard: List[Dict]) -> None:
+        """Compare current scores against previous update to detect birdies/eagles.
+
+        Only generates alerts for score improvements (birdie or better).
+        Uses the player's current_hole and Augusta's hole pars to determine
+        whether the score change was a birdie, eagle, or albatross.
+        """
+        new_scores: Dict[str, int] = {}
+        new_alerts: List[Dict] = []
+
+        for player in leaderboard:
+            name = player.get("player", "")
+            score = player.get("score", 0)
+            hole = player.get("current_hole") or 0
+            new_scores[name] = score
+
+            if not self._previous_scores or name not in self._previous_scores:
+                continue
+
+            prev_score = self._previous_scores[name]
+            change = score - prev_score  # negative = improvement
+            if change >= 0:
+                continue
+
+            # Use hole par to get an accurate description
+            hole_par = AUGUSTA_HOLES.get(hole, {}).get("par", 4)
+            desc = get_score_description(change, hole_par)
+
+            # Only alert on birdie or better
+            if desc in ("Birdie", "Eagle", "Albatross"):
+                new_alerts.append({
+                    "player": name,
+                    "hole": hole,
+                    "score_desc": desc,
+                })
+                self.logger.info(f"Live alert: {name} {desc} on hole {hole}")
+
+        self._previous_scores = new_scores
+
+        if new_alerts:
+            self._alert_queue = new_alerts
+            self._alert_index = 0
+            self._last_alert_advance = time.time()
 
     def _update_schedule(self):
         """Update schedule data from API."""
@@ -483,9 +541,32 @@ class MastersTournamentPlugin(BasePlugin):
         )
 
     def _display_live_action(self, force_clear: bool) -> bool:
-        """Show live alert if enhanced renderer available, else leaderboard."""
-        if hasattr(self.renderer, "render_live_alert") and self._leaderboard_data:
-            # Show the leader's current status as a live alert
+        """Show live birdie/eagle alerts, falling back to the leader."""
+        if not hasattr(self.renderer, "render_live_alert"):
+            return self._display_leaderboard(force_clear)
+
+        # Rotate through queued alerts on a dwell timer
+        if self._alert_queue:
+            now = time.time()
+            if now - self._last_alert_advance >= self._alert_dwell:
+                self._alert_index += 1
+                self._last_alert_advance = now
+            # Expire the queue once we've shown all alerts
+            if self._alert_index >= len(self._alert_queue):
+                self._alert_queue = []
+                self._alert_index = 0
+            else:
+                alert = self._alert_queue[self._alert_index]
+                return self._show_image(
+                    self.renderer.render_live_alert(
+                        alert["player"],
+                        alert["hole"],
+                        alert["score_desc"],
+                    )
+                )
+
+        # No pending alerts — show the leader's current status
+        if self._leaderboard_data:
             leader = self._leaderboard_data[0]
             return self._show_image(
                 self.renderer.render_live_alert(
