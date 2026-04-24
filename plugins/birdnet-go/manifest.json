@@ -1,7 +1,7 @@
 {
   "id": "birdnet-go",
   "name": "BirdNET-Go",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "ChuckBuilds",
   "description": "Display the most recently identified bird from a BirdNET-Go MQTT feed. Shows common name, confidence, time since detection, and a species image fetched from BirdNET-Go's media API. Supports always-on rotation and interrupt pop-up modes.",
   "category": "integration",
@@ -22,6 +22,11 @@
     {
       "released": "2026-04-24",
       "version": "1.0.0",
+      "ledmatrix_min_version": "2.0.0"
+    },
+    {
+      "released": "2026-04-24",
+      "version": "1.0.1",
       "ledmatrix_min_version": "2.0.0"
     }
   ],

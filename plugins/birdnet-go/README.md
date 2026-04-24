@@ -46,9 +46,82 @@ Full option reference: see `config_schema.json`.
 
 If more than `stale_after_minutes` pass without a detection, the rotation slot shows "No recent birds" instead.
 
-## How to enable BirdNET-Go MQTT
+## Configuring MQTT with the Home Assistant broker
 
-In BirdNET-Go's settings, enable MQTT under *Integrations* and set a topic (e.g. `birdnet/detections`). Point this plugin's `mqtt.host` at your broker and use the same topic. The plugin tolerates the common payload shapes; if your fork uses different JSON keys, map them via `field_mapping`.
+Most people running BirdNET-Go alongside Home Assistant already have the **Mosquitto broker** add-on installed in HA. This plugin connects to that same broker — BirdNET-Go publishes detections, and this plugin subscribes.
+
+### 1. Create a dedicated MQTT user in Home Assistant
+
+Sharing your personal HA account's MQTT credentials works but is messy. Create a separate user for the LED matrix:
+
+1. In Home Assistant: **Settings → People → Users → Add User**
+2. Name it something like `ledmatrix` (not an admin, just a regular user)
+3. Set a password — you'll paste this into the plugin config
+
+The Mosquitto add-on authenticates against HA's user list by default, so no extra broker config is needed.
+
+### 2. Find your broker's address and port
+
+- **Host**: the LAN IP or hostname of the machine running Home Assistant (e.g. `192.168.1.10` or `homeassistant.local`). Don't use `localhost` unless the LED matrix is running on the HA host itself.
+- **Port**: `1883` (plain) is the default. If you've enabled TLS on Mosquitto, use `8883` — note this plugin does not currently support TLS, so stick with 1883 on your LAN.
+
+### 3. Configure BirdNET-Go to publish to the broker
+
+In BirdNET-Go's web UI (**Settings → Integrations → MQTT**):
+- Broker URL: `tcp://<ha-ip>:1883`
+- Username / Password: the `ledmatrix` user you just made (or a separate `birdnet` user — the plugin doesn't care who publishes)
+- Topic: `birdnet` (this is what the plugin defaults to; can be any topic you want, just make it match)
+- Enable the integration and restart BirdNET-Go
+
+Verify it works from any machine on the LAN:
+```bash
+mosquitto_sub -h <ha-ip> -p 1883 -u ledmatrix -P <password> -t 'birdnet/#' -v
+```
+When a bird is detected you'll see a JSON payload print out.
+
+### 4. Fill in the plugin config
+
+Via the LEDMatrix web UI (easier): open the BirdNET-Go plugin's settings panel and paste:
+
+| Field | Value |
+| --- | --- |
+| `mqtt.host` | HA broker IP, e.g. `192.168.1.10` |
+| `mqtt.port` | `1883` |
+| `mqtt.username` | `ledmatrix` |
+| `mqtt.password` | the password you set in step 1 |
+| `mqtt.topic` | `birdnet` (same as BirdNET-Go) |
+| `birdnet_api.base_url` | `http://<birdnet-host>:8080` |
+
+Or edit `config/config.json` directly:
+
+```json
+"birdnet-go": {
+  "enabled": true,
+  "mqtt": {
+    "host": "192.168.1.10",
+    "port": 1883,
+    "username": "ledmatrix",
+    "password": "REPLACE_ME",
+    "topic": "birdnet"
+  },
+  "birdnet_api": {
+    "base_url": "http://birdnet-go.local:8080"
+  }
+}
+```
+Then `sudo systemctl restart ledmatrix`.
+
+### 5. Confirm the plugin connected
+
+```bash
+sudo journalctl -u ledmatrix -f | grep -i birdnet
+```
+You should see `Connected to MQTT broker` and `Subscribed to topic: birdnet`. If not, check:
+- broker IP reachable from the Pi (`ping <ha-ip>`)
+- username/password correct (try `mosquitto_sub` from the Pi with the same creds)
+- the HA Mosquitto add-on is running and listening on 1883
+
+The plugin tolerates the common BirdNET-Go payload shapes (`CommonName` / `commonName` / `common_name`). If your fork publishes with different keys, override them via `field_mapping`.
 
 ## How images are fetched
 
