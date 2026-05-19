@@ -17,74 +17,71 @@
           "default": 30,
           "minimum": 10,
           "maximum": 300,
-          "description": "Duration in seconds to display the stock news ticker"
+          "description": "Duration in seconds to display the ticker when dynamic duration is disabled"
         },
-        "update_interval": {
+        "update_interval_seconds": {
           "type": "integer",
-          "default": 3600,
-          "minimum": 60,
-          "maximum": 3600,
-          "description": "How often to fetch new stock news headlines (seconds)"
+          "default": 900,
+          "minimum": 300,
+          "maximum": 7200,
+          "description": "How often to fetch fresh headlines (seconds). Default: 15 minutes"
+        },
+        "max_daily_requests": {
+          "type": "integer",
+          "default": 200,
+          "minimum": 10,
+          "maximum": 1000,
+          "description": "Maximum total RSS requests per day across all symbols and feeds"
+        },
+        "max_requests_per_hour": {
+          "type": "integer",
+          "default": 50,
+          "minimum": 5,
+          "maximum": 200,
+          "description": "Maximum RSS requests per rolling hour"
+        },
+        "display_style": {
+          "type": "string",
+          "enum": ["logo_and_ticker", "ticker_only", "logo_only"],
+          "default": "logo_and_ticker",
+          "description": "What to show per news item: logo + ticker text, text only, or logo + symbol only"
+        },
+        "logo_fetch_enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically download company logos and cache them to disk"
+        },
+        "logo_size": {
+          "type": "integer",
+          "default": 16,
+          "minimum": 8,
+          "maximum": 48,
+          "description": "Logo height in pixels (width scales proportionally to maintain aspect ratio)"
+        },
+        "logo_url_template": {
+          "type": "string",
+          "default": "https://financialmodelingprep.com/image-stock/{symbol}.png",
+          "description": "URL template for logo downloads. Use {symbol} as placeholder (e.g. AAPL)"
         },
         "scroll_speed": {
           "type": "number",
           "default": 1,
           "minimum": 0.1,
           "maximum": 10,
-          "description": "Scrolling speed multiplier"
+          "description": "Legacy scroll speed multiplier (used when scroll_pixels_per_second is not set)"
         },
         "scroll_delay": {
           "type": "number",
           "default": 0.01,
           "minimum": 0.001,
           "maximum": 0.1,
-          "description": "Delay between scroll steps in seconds"
-        },
-        "max_headlines_per_symbol": {
-          "type": "integer",
-          "default": 1,
-          "minimum": 1,
-          "maximum": 5,
-          "description": "Maximum headlines to show per stock symbol"
-        },
-        "headlines_per_rotation": {
-          "type": "integer",
-          "default": 2,
-          "minimum": 1,
-          "maximum": 10,
-          "description": "Number of headlines to show per rotation"
-        },
-        "dynamic_duration": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable dynamic duration based on content width"
-        },
-        "min_duration": {
-          "type": "integer",
-          "default": 30,
-          "minimum": 10,
-          "maximum": 300,
-          "description": "Minimum display duration when dynamic duration is enabled"
-        },
-        "max_duration": {
-          "type": "integer",
-          "default": 300,
-          "minimum": 30,
-          "maximum": 600,
-          "description": "Maximum display duration when dynamic duration is enabled"
-        },
-        "duration_buffer": {
-          "type": "number",
-          "default": 0.1,
-          "minimum": 0.01,
-          "maximum": 1.0,
-          "description": "Duration buffer for dynamic duration calculation"
+          "description": "Legacy delay between scroll steps in seconds (used when scroll_target_fps is not set)"
         },
         "scroll_pixels_per_second": {
           "type": "number",
           "default": 25.0,
           "minimum": 5.0,
-          "maximum": 50.0,
+          "maximum": 100.0,
           "description": "Scroll speed in pixels per second"
         },
         "scroll_target_fps": {
@@ -92,38 +89,65 @@
           "default": 100.0,
           "minimum": 30.0,
           "maximum": 200.0,
-          "description": "Target FPS for scrolling"
-        },
-        "scroll_mode": {
-          "type": "string",
-          "enum": ["one_shot", "continuous"],
-          "default": "one_shot",
-          "description": "Scrolling mode"
+          "description": "Target FPS for the scroll animation"
         },
         "scroll_direction": {
           "type": "string",
           "enum": ["left", "right"],
           "default": "left",
-          "description": "Scroll direction"
+          "description": "Direction the ticker scrolls"
         },
-        "enable_scroll_metrics": {
+        "dynamic_duration": {
           "type": "boolean",
-          "default": false,
-          "description": "Enable scroll performance metrics"
+          "default": true,
+          "description": "Automatically set display duration based on total content width"
+        },
+        "min_duration": {
+          "type": "integer",
+          "default": 30,
+          "minimum": 10,
+          "maximum": 300,
+          "description": "Minimum display duration when dynamic duration is enabled (seconds)"
+        },
+        "max_duration": {
+          "type": "integer",
+          "default": 300,
+          "minimum": 30,
+          "maximum": 600,
+          "description": "Maximum display duration when dynamic duration is enabled (seconds)"
+        },
+        "rotation_enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Rotate through headlines so each one gets screen time after each scroll cycle"
+        },
+        "rotation_threshold": {
+          "type": "integer",
+          "default": 1,
+          "minimum": 1,
+          "maximum": 10,
+          "description": "Number of full scroll cycles before rotating to the next headline"
+        },
+        "max_headlines_per_symbol": {
+          "type": "integer",
+          "default": 1,
+          "minimum": 1,
+          "maximum": 5,
+          "description": "Maximum headlines to show per stock symbol per update"
         },
         "headlines_per_rotation": {
           "type": "integer",
           "default": 2,
           "minimum": 1,
           "maximum": 10,
-          "description": "Number of headlines to show per rotation"
+          "description": "Maximum headlines to pull from each custom RSS feed"
         },
         "font_size": {
           "type": "integer",
           "default": 10,
           "minimum": 8,
           "maximum": 16,
-          "description": "Font size for headlines"
+          "description": "Font size for headline and symbol text (pixels)"
         },
         "background_service": {
           "type": "object",
@@ -138,21 +162,21 @@
               "default": 30,
               "minimum": 10,
               "maximum": 120,
-              "description": "Request timeout in seconds"
+              "description": "HTTP request timeout in seconds"
             },
             "max_retries": {
               "type": "integer",
-              "default": 5,
+              "default": 3,
               "minimum": 1,
               "maximum": 10,
-              "description": "Maximum number of retries for failed requests"
+              "description": "Maximum retries for failed requests"
             },
             "priority": {
               "type": "integer",
               "default": 2,
               "minimum": 1,
               "maximum": 5,
-              "description": "Priority for background requests (1=highest, 5=lowest)"
+              "description": "Background request priority (1=highest, 5=lowest)"
             }
           },
           "additionalProperties": false
@@ -167,13 +191,13 @@
           "type": "array",
           "items": {
             "type": "string",
-            "pattern": "^[A-Z]{1,5}$",
-            "description": "Stock symbol (e.g., AAPL, GOOGL)"
+            "pattern": "^[A-Z]{1,10}$",
+            "description": "Stock ticker symbol (e.g. AAPL, GOOGL, BRK.B)"
           },
           "uniqueItems": true,
           "maxItems": 50,
           "default": ["AAPL", "GOOGL", "MSFT"],
-          "description": "List of stock symbols to track news for"
+          "description": "Stock symbols to fetch live headlines for (via Yahoo Finance RSS)"
         },
         "custom_feeds": {
           "type": "object",
@@ -185,15 +209,11 @@
             }
           },
           "additionalProperties": false,
-          "description": "Custom RSS feed URLs with user-defined names"
+          "description": "Additional RSS feeds keyed by display name (any financial RSS URL)"
         },
         "text_color": {
           "type": "array",
-          "items": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 255
-          },
+          "items": {"type": "integer", "minimum": 0, "maximum": 255},
           "minItems": 3,
           "maxItems": 3,
           "default": [0, 255, 0],
@@ -201,27 +221,11 @@
         },
         "symbol_color": {
           "type": "array",
-          "items": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 255
-          },
+          "items": {"type": "integer", "minimum": 0, "maximum": 255},
           "minItems": 3,
           "maxItems": 3,
           "default": [255, 255, 0],
-          "description": "RGB color for stock symbols"
-        },
-        "separator_color": {
-          "type": "array",
-          "items": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 255
-          },
-          "minItems": 3,
-          "maxItems": 3,
-          "default": [255, 0, 0],
-          "description": "RGB color for separators between headlines"
+          "description": "RGB color for stock symbol labels"
         }
       },
       "additionalProperties": false
