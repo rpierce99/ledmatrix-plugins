@@ -1,9 +1,9 @@
 {
   "id": "stock-news",
   "name": "Stock News Ticker",
-  "version": "1.1.0",
+  "version": "2.3.3",
   "author": "ChuckBuilds",
-  "description": "Displays scrolling stock-specific news headlines and financial updates from RSS feeds, focused on market news and company updates",
+  "description": "Live stock headlines via Yahoo Finance search API with RSS fallback, company logos, configurable display styles (logo+ticker, ticker only, logo only), Vegas scroll integration, and per-day/hour request budgeting",
   "entry_point": "manager.py",
   "class_name": "StockNewsTickerPlugin",
   "category": "financial",
@@ -24,6 +24,48 @@
   "branch": "main",
   "plugin_path": "plugins/stock-news",
   "versions": [
+    {
+      "released": "2026-05-19",
+      "version": "2.3.3",
+      "notes": "Fix _record_request() to count 4xx/5xx responses not just 200s; fix BRK-B/BF-B excluded by overly broad crypto filter; sanitize symbol to safe filename before filesystem operations",
+      "ledmatrix_min": "2.0.0"
+    },
+    {
+      "released": "2026-05-19",
+      "version": "2.3.2",
+      "notes": "sync_with_stocks_plugin option to mirror ledmatrix-stocks watchlist; defusedxml for RSS parsing; Optional[str] type hint on display(); fix schema descriptions (update_interval → update_interval_seconds); fix manifest/registry descriptions to reflect YF search API + RSS fallback",
+      "ledmatrix_min": "2.0.0"
+    },
+    {
+      "released": "2026-05-19",
+      "version": "2.3.1",
+      "notes": "Fix logo scaling: auto logo_size now equals display_height (not capped at 32); logos constrained by height only so landscape logos render at full panel height; failed downloads remembered per session to avoid repeated attempts",
+      "ledmatrix_min": "2.0.0"
+    },
+    {
+      "released": "2026-05-19",
+      "version": "2.3.0",
+      "notes": "Auto font size; configurable item_gap; spread symbol fetches across update_interval; market-hours throttling; budget adequacy warning; show_price; show_age with relative timestamps; publisher_color; per-symbol max_headlines dict; stale-data colour dimming; centered no-news fallback; multi-segment colour rendering",
+      "ledmatrix_min": "2.0.0"
+    },
+    {
+      "released": "2026-05-19",
+      "version": "2.2.0",
+      "notes": "on_config_change() live reload; get_display_duration() uses ScrollHelper dynamic duration; Vegas content caching; session.close() in cleanup; font_path config with 3-level fallback; _rotate_headlines() with logging; expanded get_info(); schema section titles and x-widget hints",
+      "ledmatrix_min": "2.0.0"
+    },
+    {
+      "released": "2026-05-19",
+      "version": "2.1.0",
+      "notes": "YF search API (publisher, timestamp) with RSS fallback; retry session with backoff; shuffle_headlines config; show_publisher config",
+      "ledmatrix_min": "2.0.0"
+    },
+    {
+      "released": "2026-05-19",
+      "version": "2.0.0",
+      "notes": "Real Yahoo Finance RSS fetching per symbol; company logo rendering (logo_and_ticker / ticker_only / logo_only); per-day and per-hour request budgeting; Vegas scroll integration; headline rotation; fully configurable display style, logo size, and scroll settings",
+      "ledmatrix_min": "2.0.0"
+    },
     {
       "released": "2026-05-19",
       "version": "1.1.0",

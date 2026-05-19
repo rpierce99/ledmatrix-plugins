@@ -8,3 +8,6 @@
 # but listed here for reference:
 # requests>=2.25.0
 # Pillow>=8.0.0
+
+# Safe XML parsing (prevents XML entity expansion attacks on untrusted RSS feeds)
+defusedxml>=0.7.1

@@ -422,7 +422,7 @@
     {
       "id": "stock-news",
       "name": "Stock News Ticker",
-      "description": "Displays scrolling stock-specific news headlines and financial updates from RSS feeds, focused on market news and company updates",
+      "description": "Live stock headlines via Yahoo Finance search API with RSS fallback, company logos, configurable display styles (logo+ticker, ticker only, logo only), Vegas scroll integration, and per-day/hour request budgeting",
       "author": "ChuckBuilds",
       "category": "financial",
       "tags": [
@@ -443,7 +443,7 @@
       "last_updated": "2026-05-19",
       "verified": true,
       "screenshot": "",
-      "latest_version": "1.1.0"
+      "latest_version": "2.3.3"
     },
     {
       "id": "stocks",
