@@ -298,8 +298,13 @@ class StockNewsTickerPlugin(BasePlugin):
                 return []
             stocks_cfg = getattr(stocks_plugin, 'config', {})
             symbols = stocks_cfg.get('stocks', {}).get('symbols', [])
-            # Filter out index/crypto-style symbols that won't have news (^GSPC, BTC-USD)
-            equity = [s for s in symbols if s and not s.startswith('^') and '-' not in s]
+            # Exclude index symbols (^GSPC) and crypto pairs (-USD, -USDT, -BTC, -ETH, -USDC)
+            # Hyphenated equities like BRK-B and BF-B are preserved intentionally
+            _CRYPTO_SUFFIXES = ('-USD', '-USDT', '-BTC', '-ETH', '-USDC', '-BUSD', '-EUR', '-GBP')
+            equity = [
+                s for s in symbols
+                if s and not s.startswith('^') and not any(s.endswith(sfx) for sfx in _CRYPTO_SUFFIXES)
+            ]
             return equity
         except Exception as e:
             self.logger.debug("[Stock News] Could not read ledmatrix-stocks symbols: %s", e)
@@ -382,8 +387,8 @@ class StockNewsTickerPlugin(BasePlugin):
         try:
             timeout = self.background_config.get('request_timeout', 30)
             resp = self._session.get(_YAHOO_SEARCH, params=params, timeout=timeout)
+            self._record_request()  # count any response, including 4xx/5xx
             resp.raise_for_status()
-            self._record_request()
 
             data = resp.json()
 
@@ -440,8 +445,8 @@ class StockNewsTickerPlugin(BasePlugin):
         try:
             timeout = self.background_config.get('request_timeout', 30)
             resp = self._session.get(url, timeout=timeout)
+            self._record_request()  # count any response, including 4xx/5xx
             resp.raise_for_status()
-            self._record_request()
 
             root = ET.fromstring(resp.content)
             items: List[Dict] = []
@@ -583,23 +588,26 @@ class StockNewsTickerPlugin(BasePlugin):
         if symbol in self._logo_failed:
             return None
 
+        # Sanitize symbol to safe filename characters — prevents path traversal
+        safe_name = re.sub(r'[^A-Za-z0-9.\-]', '_', symbol)[:20]
+
         # Width can be up to 4× height — lets landscape logos breathe
         max_w = self.logo_size * 4
 
-        logo_path = self._logo_dir / f"{symbol}.png"
+        logo_path = self._logo_dir / f"{safe_name}.png"
         if logo_path.exists():
-            return self.logo_helper.load_logo(symbol, logo_path,
+            return self.logo_helper.load_logo(safe_name, logo_path,
                                               max_width=max_w,
                                               max_height=self.logo_size)
 
-        # Download and cache to disk on first use
+        # Download and cache to disk on first use (URL uses original symbol)
         url = self.logo_url_template.replace('{symbol}', symbol)
         try:
             resp = self._session.get(url, timeout=10)
             if resp.status_code == 200 and resp.content:
                 logo_path.write_bytes(resp.content)
                 self.logger.info("[Stock News] Downloaded logo for %s", symbol)
-                return self.logo_helper.load_logo(symbol, logo_path,
+                return self.logo_helper.load_logo(safe_name, logo_path,
                                                   max_width=max_w,
                                                   max_height=self.logo_size)
             self.logger.debug("[Stock News] Logo not available for %s (HTTP %d)",
