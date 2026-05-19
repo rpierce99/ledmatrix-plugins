@@ -197,6 +197,10 @@ class FlightTrackerPlugin(BasePlugin):
         self.fr24_enrichment = self.config.get('fr24_enrichment', True)
         self.fr24_enrichment_interval = self.config.get('fr24_enrichment_interval', 60)
         self.last_fr24_enrichment = 0
+
+        # Visibility tracking — set by display(), used to gate enrichment API calls and log verbosity
+        self._last_displayed_time: float = 0.0
+        self._display_idle_threshold: float = 30.0
         # Cache of FR24 data keyed by ICAO hex (for enrichment mode)
         self.fr24_enrichment_cache: Dict[str, Dict] = {}
         # Cache of FR24 detail data keyed by FR24 flight ID (for airline name / timing)
@@ -1981,36 +1985,64 @@ class FlightTrackerPlugin(BasePlugin):
     def update(self) -> None:
         """Update aircraft data from the configured data source."""
         current_time = time.time()
+        is_visible = (current_time - self._last_displayed_time) < self._display_idle_threshold
 
         if current_time - self.last_fetch >= self.update_interval:
             self.last_fetch = current_time
 
             if self.data_source == 'flightradar24':
-                self.logger.info("[Flight Tracker] Fetching aircraft data from FlightRadar24")
+                if is_visible:
+                    self.logger.info("[Flight Tracker] Fetching aircraft data from FlightRadar24")
+                else:
+                    self.logger.debug("[Flight Tracker] Fetching aircraft data from FlightRadar24 (background)")
                 self._update_from_fr24()
-                self.logger.info(f"[Flight Tracker] Currently tracking {len(self.aircraft_data)} aircraft")
+                if is_visible:
+                    self.logger.info(f"[Flight Tracker] Currently tracking {len(self.aircraft_data)} aircraft")
+                else:
+                    self.logger.debug(f"[Flight Tracker] Currently tracking {len(self.aircraft_data)} aircraft")
             elif self.data_source in ('adsbfi', 'adsblol', 'opensky'):
-                self.logger.info(f"[Flight Tracker] Fetching aircraft data from {self.data_source}")
+                if is_visible:
+                    self.logger.info(f"[Flight Tracker] Fetching aircraft data from {self.data_source}")
+                else:
+                    self.logger.debug(f"[Flight Tracker] Fetching aircraft data from {self.data_source} (background)")
                 self._update_from_fetcher()
-                self.logger.info(f"[Flight Tracker] Currently tracking {len(self.aircraft_data)} aircraft")
-                if self.fr24_enrichment:
+                if is_visible:
+                    self.logger.info(f"[Flight Tracker] Currently tracking {len(self.aircraft_data)} aircraft")
+                else:
+                    self.logger.debug(f"[Flight Tracker] Currently tracking {len(self.aircraft_data)} aircraft")
+                if self.fr24_enrichment and is_visible:
                     self._maybe_refresh_fr24_enrichment()
-                self._queue_interesting_callsigns()
+                if is_visible:
+                    self._queue_interesting_callsigns()
+                else:
+                    self.pending_fr24_details.clear()
+                    self.pending_flight_plans.clear()
                 self._enrich_from_offline_db()
             else:
-                self.logger.info(f"[Flight Tracker] Fetching aircraft data from {self.skyaware_url}")
+                if is_visible:
+                    self.logger.info(f"[Flight Tracker] Fetching aircraft data from {self.skyaware_url}")
+                else:
+                    self.logger.debug(f"[Flight Tracker] Fetching aircraft data from {self.skyaware_url} (background)")
                 data = self._fetch_aircraft_data()
                 if data:
-                    self.logger.info("[Flight Tracker] Received data, processing aircraft...")
+                    if is_visible:
+                        self.logger.info("[Flight Tracker] Received data, processing aircraft...")
                     self._process_aircraft_data(data)
-                    self.logger.info(f"[Flight Tracker] Currently tracking {len(self.aircraft_data)} aircraft")
+                    if is_visible:
+                        self.logger.info(f"[Flight Tracker] Currently tracking {len(self.aircraft_data)} aircraft")
+                    else:
+                        self.logger.debug(f"[Flight Tracker] Currently tracking {len(self.aircraft_data)} aircraft")
                     # Queue interesting callsigns for background FlightAware fetching
-                    self._queue_interesting_callsigns()
+                    if is_visible:
+                        self._queue_interesting_callsigns()
+                    else:
+                        self.pending_fr24_details.clear()
+                        self.pending_flight_plans.clear()
                 else:
                     self.logger.warning("[Flight Tracker] No data received from SkyAware")
 
-                # FR24 enrichment for SkyAware users
-                if self.fr24_enrichment:
+                # FR24 enrichment for SkyAware users — only when on screen
+                if self.fr24_enrichment and is_visible:
                     self._maybe_refresh_fr24_enrichment()
 
                 # Enrich remaining aircraft with offline DB (aircraft type)
@@ -2018,14 +2050,17 @@ class FlightTrackerPlugin(BasePlugin):
 
             self.last_update = current_time
 
-        # Background FR24 detail fetches (airline name, timing, airport positions)
-        if self.data_source == 'flightradar24' or self.fr24_enrichment:
+        # Background FR24 detail fetches (airline name, timing, airport positions) — only when on screen
+        if (self.data_source == 'flightradar24' or self.fr24_enrichment) and is_visible:
             self._background_fetch_fr24_details()
+        elif not is_visible:
+            self.pending_fr24_details.clear()
 
-        # Background service for FlightAware flight plan data (SkyAware mode, no FR24 enrichment)
+        # Background service for FlightAware flight plan data (SkyAware mode, no FR24 enrichment) — only when on screen
         if (self.data_source == 'skyaware' and
                 not self.fr24_enrichment and
                 self.background_service_enabled and
+                is_visible and
                 current_time - self.last_background_fetch >= self.background_fetch_interval):
             self.logger.info("[Flight Tracker] Running background service for flight plans")
             self._background_fetch_flight_plans()
@@ -2288,6 +2323,12 @@ class FlightTrackerPlugin(BasePlugin):
         indicate which manifest display mode is active.  It maps framework mode
         names (from manifest ``display_modes``) to our internal mode names.
         """
+        now = time.time()
+        was_hidden = (now - self._last_displayed_time) > self._display_idle_threshold
+        self._last_displayed_time = now
+        if was_hidden and self.fr24_enrichment:
+            self.last_fr24_enrichment = 0.0
+
         aircraft_count = len(self.aircraft_data)
         closest = self.get_closest_aircraft()
 

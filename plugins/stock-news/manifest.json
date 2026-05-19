@@ -1,7 +1,7 @@
 {
   "id": "stock-news",
   "name": "Stock News Ticker",
-  "version": "1.0.5",
+  "version": "1.1.0",
   "author": "ChuckBuilds",
   "description": "Displays scrolling stock-specific news headlines and financial updates from RSS feeds, focused on market news and company updates",
   "entry_point": "manager.py",
@@ -25,6 +25,12 @@
   "plugin_path": "plugins/stock-news",
   "versions": [
     {
+      "released": "2026-05-19",
+      "version": "1.1.0",
+      "notes": "Implement ScrollHelper-based horizontal scrolling; yellow symbol, green headline; proper Press Start 2P font rendering",
+      "ledmatrix_min": "2.0.0"
+    },
+    {
       "released": "2026-05-18",
       "version": "1.0.5",
       "ledmatrix_min": "2.0.0"
@@ -45,7 +51,7 @@
       "ledmatrix_min_version": "2.0.0"
     }
   ],
-  "last_updated": "2026-05-18",
+  "last_updated": "2026-05-19",
   "stars": 0,
   "downloads": 0,
   "verified": true,
