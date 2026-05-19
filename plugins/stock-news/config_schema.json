@@ -128,6 +128,16 @@
           "maximum": 10,
           "description": "Number of full scroll cycles before rotating to the next headline"
         },
+        "shuffle_headlines": {
+          "type": "boolean",
+          "default": true,
+          "description": "Randomise headline order on fetch and after each full rotation cycle"
+        },
+        "show_publisher": {
+          "type": "boolean",
+          "default": true,
+          "description": "Append the news source (e.g. '• Reuters') after each headline"
+        },
         "max_headlines_per_symbol": {
           "type": "integer",
           "default": 1,

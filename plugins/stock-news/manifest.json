@@ -1,7 +1,7 @@
 {
   "id": "stock-news",
   "name": "Stock News Ticker",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "author": "ChuckBuilds",
   "description": "Live stock headlines from Yahoo Finance RSS with company logos, configurable display styles (logo+ticker, ticker only, logo only), Vegas scroll integration, and per-day/hour request budgeting",
   "entry_point": "manager.py",
@@ -24,6 +24,12 @@
   "branch": "main",
   "plugin_path": "plugins/stock-news",
   "versions": [
+    {
+      "released": "2026-05-19",
+      "version": "2.1.0",
+      "notes": "YF search API (publisher, timestamp) with RSS fallback; retry session with backoff; shuffle_headlines config; show_publisher config",
+      "ledmatrix_min": "2.0.0"
+    },
     {
       "released": "2026-05-19",
       "version": "2.0.0",

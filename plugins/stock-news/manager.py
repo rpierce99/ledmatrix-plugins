@@ -15,6 +15,7 @@ Features:
 """
 
 import logging
+import random
 import time
 import requests
 import xml.etree.ElementTree as ET
@@ -24,6 +25,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 from PIL import Image, ImageDraw, ImageFont
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from src.plugin_system.base_plugin import BasePlugin
 from src.common.scroll_helper import ScrollHelper
@@ -31,6 +34,7 @@ from src.common.logo_helper import LogoHelper
 
 logger = logging.getLogger(__name__)
 
+_YAHOO_SEARCH = "https://query1.finance.yahoo.com/v1/finance/search"
 _YAHOO_RSS = "https://feeds.finance.yahoo.com/rss/2.0/headline?s={symbol}&region=US&lang=en-US"
 
 
@@ -69,6 +73,8 @@ class StockNewsTickerPlugin(BasePlugin):
         self.font_size = self.global_config.get('font_size', 10)
         self.rotation_enabled = self.global_config.get('rotation_enabled', True)
         self.rotation_threshold = self.global_config.get('rotation_threshold', 1)
+        self.shuffle_headlines = self.global_config.get('shuffle_headlines', True)
+        self.show_publisher = self.global_config.get('show_publisher', True)
 
         # Fetch rate limiting
         self.update_interval = self.global_config.get('update_interval_seconds', 900)
@@ -101,9 +107,13 @@ class StockNewsTickerPlugin(BasePlugin):
         self.all_news_items: list = []
         self.current_rotation_index: int = 0
         self._rotation_count: int = 0
+        self._items_rotated: int = 0   # tracks full-cycle completions for shuffle
         self._cycle_complete: bool = False
         self.last_update: float = 0
         self.initialized = True
+
+        # HTTP session with retry/backoff
+        self._session = self._create_session()
 
         # Logo infrastructure
         self._logo_dir = Path(__file__).parent / 'assets' / 'logos'
@@ -190,6 +200,21 @@ class StockNewsTickerPlugin(BasePlugin):
         except Exception as e:
             self.logger.warning(f"Error registering fonts: {e}")
 
+    def _create_session(self) -> requests.Session:
+        """Build a requests Session with automatic retry and exponential backoff."""
+        session = requests.Session()
+        retry = Retry(
+            total=4,
+            backoff_factor=1,
+            status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods=["GET"],
+        )
+        adapter = HTTPAdapter(max_retries=retry)
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
+        session.headers.update({'User-Agent': 'LEDMatrix/2.0 (stock-news plugin)'})
+        return session
+
     # -------------------------------------------------------------------------
     # Update / data fetching
     # -------------------------------------------------------------------------
@@ -221,8 +246,11 @@ class StockNewsTickerPlugin(BasePlugin):
                 + len(custom_feeds) * self.headlines_per_rotation
             )
             self.all_news_items = all_items[:max_items] if len(all_items) > max_items else all_items
+            if self.shuffle_headlines and self.all_news_items:
+                random.shuffle(self.all_news_items)
             self.current_rotation_index = 0
             self._rotation_count = 0
+            self._items_rotated = 0
             self.last_update = time.time()
             self.logger.info("[Stock News] Updated: %d items", len(self.all_news_items))
 
@@ -234,12 +262,78 @@ class StockNewsTickerPlugin(BasePlugin):
             self.logger.error(f"[Stock News] update() error: {e}")
 
     def _fetch_stock_news(self, symbol: str) -> List[Dict]:
-        """Fetch live headlines for a stock symbol from Yahoo Finance RSS."""
+        """Fetch live headlines for a symbol — tries YF search API first, falls back to RSS."""
+        items = self._fetch_yf_api(symbol)
+        if items:
+            return items
+        # RSS fallback (e.g. if API changes or rate-limits)
+        self.logger.debug("[Stock News] RSS fallback for %s", symbol)
         url = _YAHOO_RSS.format(symbol=symbol)
         items = self._fetch_rss_feed(symbol, url, max_items=self.max_headlines_per_symbol)
         for item in items:
             item['symbol'] = symbol
         return items
+
+    def _fetch_yf_api(self, symbol: str) -> List[Dict]:
+        """Fetch headlines via Yahoo Finance search API (returns publisher + timestamp)."""
+        bucket = int(time.time() // self.update_interval)
+        cache_key = f"stock_yf_{symbol}_{bucket}"
+        cached = self.cache_manager.get(cache_key)
+        if cached:
+            self.logger.debug("[Stock News] Cache hit (YF API): %s", symbol)
+            return cached
+
+        if not self._check_request_budget():
+            self.logger.warning(
+                "[Stock News] Request budget exceeded (%d/day, %d/hr limit) — skipping %s",
+                self._requests_today, self.max_requests_per_hour, symbol,
+            )
+            return []
+
+        params = {
+            'q': symbol,
+            'lang': 'en-US',
+            'region': 'US',
+            'quotesCount': 0,
+            'newsCount': self.max_headlines_per_symbol,
+            'enableFuzzyQuery': False,
+        }
+        try:
+            timeout = self.background_config.get('request_timeout', 30)
+            resp = self._session.get(_YAHOO_SEARCH, params=params, timeout=timeout)
+            resp.raise_for_status()
+            self._record_request()
+
+            news_raw = resp.json().get('news', [])
+            items: List[Dict] = []
+            for raw in news_raw[:self.max_headlines_per_symbol]:
+                title = raw.get('title', '').strip()
+                if not title:
+                    continue
+                pub_ts = raw.get('providerPublishTime', 0)
+                pub_dt = datetime.fromtimestamp(pub_ts) if pub_ts else None
+                items.append({
+                    'symbol': symbol,
+                    'feed_name': symbol,
+                    'title': self._clean_headline(title),
+                    'link': raw.get('link', ''),
+                    'publisher': raw.get('publisher', ''),
+                    'published': pub_dt.isoformat() if pub_dt else '',
+                    'published_dt': pub_dt,
+                    'summary': raw.get('summary', ''),
+                })
+
+            self.cache_manager.set(cache_key, items, ttl=self.update_interval * 2)
+            self.logger.info("[Stock News] YF API: %d items for %s", len(items), symbol)
+            return items
+
+        except requests.RequestException as e:
+            self.logger.warning("[Stock News] YF API network error for %s: %s", symbol, e)
+        except (ValueError, KeyError) as e:
+            self.logger.warning("[Stock News] YF API parse error for %s: %s", symbol, e)
+        except Exception as e:
+            self.logger.warning("[Stock News] YF API unexpected error for %s: %s", symbol, e)
+        return []
 
     def _fetch_rss_feed(self, feed_name: str, url: str, max_items: int = 3) -> List[Dict]:
         """Fetch and parse an RSS feed with caching and request budget enforcement."""
@@ -247,20 +341,19 @@ class StockNewsTickerPlugin(BasePlugin):
         cache_key = f"stock_rss_{feed_name}_{bucket}"
         cached = self.cache_manager.get(cache_key)
         if cached:
-            self.logger.debug("[Stock News] Cache hit: %s", feed_name)
+            self.logger.debug("[Stock News] Cache hit (RSS): %s", feed_name)
             return cached
 
         if not self._check_request_budget():
             self.logger.warning(
-                "[Stock News] Request budget exceeded (%d/day, %d/hr limit) — skipping %s",
-                self._requests_today, self.max_requests_per_hour, feed_name,
+                "[Stock News] Request budget exceeded — skipping %s", feed_name,
             )
             return []
 
         try:
             self.logger.info("[Stock News] Fetching RSS: %s", feed_name)
             timeout = self.background_config.get('request_timeout', 30)
-            resp = requests.get(url, timeout=timeout, headers={'User-Agent': 'LEDMatrix/2.0'})
+            resp = self._session.get(url, timeout=timeout)
             resp.raise_for_status()
             self._record_request()
 
@@ -276,11 +369,12 @@ class StockNewsTickerPlugin(BasePlugin):
                     'feed_name': feed_name,
                     'title': self._clean_headline(html.unescape(title_el.text.strip())),
                     'link': (link_el.text or '') if link_el is not None else '',
+                    'publisher': '',
                     'published': (pub_el.text or '') if pub_el is not None else '',
                 })
 
             self.cache_manager.set(cache_key, items, ttl=self.update_interval * 2)
-            self.logger.info("[Stock News] Got %d items for %s", len(items), feed_name)
+            self.logger.info("[Stock News] RSS: %d items for %s", len(items), feed_name)
             return items
 
         except requests.RequestException as e:
@@ -340,7 +434,7 @@ class StockNewsTickerPlugin(BasePlugin):
 
         url = self.logo_url_template.replace('{symbol}', symbol)
         try:
-            resp = requests.get(url, timeout=10, headers={'User-Agent': 'LEDMatrix/2.0'})
+            resp = self._session.get(url, timeout=10)
             if resp.status_code == 200 and resp.content:
                 logo_path.write_bytes(resp.content)
                 self.logger.info("[Stock News] Downloaded logo for %s", symbol)
@@ -391,6 +485,12 @@ class StockNewsTickerPlugin(BasePlugin):
                     self._rotation_count = 0
                     if len(self.all_news_items) > 1:
                         self.all_news_items = self.all_news_items[1:] + self.all_news_items[:1]
+                        self._items_rotated += 1
+                        # After every item has had a turn at the front, reshuffle
+                        if self.shuffle_headlines and self._items_rotated >= len(self.all_news_items):
+                            random.shuffle(self.all_news_items)
+                            self._items_rotated = 0
+                            self.logger.debug("[Stock News] Reshuffled headlines")
                     self.scroll_helper.clear_cache()
                     self.scroll_helper.reset_scroll()
                     return  # next display() call rebuilds with rotated order
@@ -443,12 +543,15 @@ class StockNewsTickerPlugin(BasePlugin):
                 else None
             )
 
+            publisher = news_item.get('publisher', '')
             if self.display_style == 'logo_only':
                 symbol_text = f" {symbol}"
                 headline_text = ''
             else:
                 symbol_text = f"{symbol}: "
                 headline_text = title
+                if self.show_publisher and publisher:
+                    headline_text = f"{headline_text}  •  {publisher}"
 
             draw_tmp = ImageDraw.Draw(Image.new('RGB', (1, 1)))
             sym_bbox = draw_tmp.textbbox((0, 0), symbol_text, font=font_sym) if symbol_text else (0, 0, 0, 0)
