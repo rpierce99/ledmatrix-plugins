@@ -1,9 +1,9 @@
 {
   "id": "stock-news",
   "name": "Stock News Ticker",
-  "version": "1.1.0",
+  "version": "2.0.0",
   "author": "ChuckBuilds",
-  "description": "Displays scrolling stock-specific news headlines and financial updates from RSS feeds, focused on market news and company updates",
+  "description": "Live stock headlines from Yahoo Finance RSS with company logos, configurable display styles (logo+ticker, ticker only, logo only), Vegas scroll integration, and per-day/hour request budgeting",
   "entry_point": "manager.py",
   "class_name": "StockNewsTickerPlugin",
   "category": "financial",
@@ -24,6 +24,12 @@
   "branch": "main",
   "plugin_path": "plugins/stock-news",
   "versions": [
+    {
+      "released": "2026-05-19",
+      "version": "2.0.0",
+      "notes": "Real Yahoo Finance RSS fetching per symbol; company logo rendering (logo_and_ticker / ticker_only / logo_only); per-day and per-hour request budgeting; Vegas scroll integration; headline rotation; fully configurable display style, logo size, and scroll settings",
+      "ledmatrix_min": "2.0.0"
+    },
     {
       "released": "2026-05-19",
       "version": "1.1.0",
