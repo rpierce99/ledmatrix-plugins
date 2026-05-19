@@ -2012,7 +2012,11 @@ class FlightTrackerPlugin(BasePlugin):
                     self.logger.debug(f"[Flight Tracker] Currently tracking {len(self.aircraft_data)} aircraft")
                 if self.fr24_enrichment and is_visible:
                     self._maybe_refresh_fr24_enrichment()
-                self._queue_interesting_callsigns()
+                if is_visible:
+                    self._queue_interesting_callsigns()
+                else:
+                    self.pending_fr24_details.clear()
+                    self.pending_flight_plans.clear()
                 self._enrich_from_offline_db()
             else:
                 if is_visible:
@@ -2029,7 +2033,11 @@ class FlightTrackerPlugin(BasePlugin):
                     else:
                         self.logger.debug(f"[Flight Tracker] Currently tracking {len(self.aircraft_data)} aircraft")
                     # Queue interesting callsigns for background FlightAware fetching
-                    self._queue_interesting_callsigns()
+                    if is_visible:
+                        self._queue_interesting_callsigns()
+                    else:
+                        self.pending_fr24_details.clear()
+                        self.pending_flight_plans.clear()
                 else:
                     self.logger.warning("[Flight Tracker] No data received from SkyAware")
 
@@ -2045,6 +2053,8 @@ class FlightTrackerPlugin(BasePlugin):
         # Background FR24 detail fetches (airline name, timing, airport positions) — only when on screen
         if (self.data_source == 'flightradar24' or self.fr24_enrichment) and is_visible:
             self._background_fetch_fr24_details()
+        elif not is_visible:
+            self.pending_fr24_details.clear()
 
         # Background service for FlightAware flight plan data (SkyAware mode, no FR24 enrichment) — only when on screen
         if (self.data_source == 'skyaware' and

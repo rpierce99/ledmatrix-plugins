@@ -121,11 +121,23 @@ class StockNewsTickerPlugin(BasePlugin):
 
     def _configure_scroll_settings(self) -> None:
         """Configure ScrollHelper with plugin scroll settings."""
-        pixels_per_second = self.global_config.get('scroll_pixels_per_second', 25.0)
+        if 'scroll_pixels_per_second' in self.global_config:
+            pixels_per_second = float(self.global_config['scroll_pixels_per_second'])
+        elif self.scroll_delay and self.scroll_delay > 0:
+            pixels_per_second = self.scroll_speed / self.scroll_delay
+        else:
+            pixels_per_second = 25.0
         self.scroll_helper.set_scroll_speed(pixels_per_second)
-        target_fps = self.global_config.get('scroll_target_fps', 100.0)
+
+        if 'scroll_target_fps' in self.global_config:
+            target_fps = float(self.global_config['scroll_target_fps'])
+        elif self.scroll_delay and self.scroll_delay > 0:
+            target_fps = 1.0 / self.scroll_delay
+        else:
+            target_fps = 100.0
         if hasattr(self.scroll_helper, 'set_target_fps'):
             self.scroll_helper.set_target_fps(target_fps)
+
         self.scroll_helper.set_dynamic_duration_settings(
             enabled=self.dynamic_duration,
             min_duration=self.min_duration,
