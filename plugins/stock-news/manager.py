@@ -230,6 +230,7 @@ class StockNewsTickerPlugin(BasePlugin):
             self.logger.debug(f"Updated stock news: {len(self.all_news_items)} total items")
             if hasattr(self, 'scroll_helper'):
                 self.scroll_helper.clear_cache()
+                self.scroll_helper.reset_scroll()
 
         except Exception as e:
             self.logger.error(f"Error updating stock news: {e}")
