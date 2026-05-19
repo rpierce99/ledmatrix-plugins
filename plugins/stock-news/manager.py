@@ -22,10 +22,11 @@ import xml.etree.ElementTree as ET
 import html
 import re
 from datetime import datetime
-from typing import Dict, Any, List
-from PIL import Image, ImageDraw
+from typing import Dict, Any, List, Optional
+from PIL import Image, ImageDraw, ImageFont
 
 from src.plugin_system.base_plugin import BasePlugin
+from src.common.scroll_helper import ScrollHelper
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +64,10 @@ class StockNewsTickerPlugin(BasePlugin):
         self.headlines_per_rotation = self.global_config.get('headlines_per_rotation', 2)
         self.font_size = self.global_config.get('font_size', 10)
 
+        # Display dimensions
+        self.display_width = self.display_manager.matrix.width
+        self.display_height = self.display_manager.matrix.height
+
         # Colors
         self.text_color = tuple(self.feeds_config.get('text_color', [0, 255, 0]))
         self.symbol_color = tuple(self.feeds_config.get('symbol_color', [255, 255, 0]))
@@ -83,9 +88,15 @@ class StockNewsTickerPlugin(BasePlugin):
         self.last_update = 0
         self.all_news_items = []
         self.current_rotation_index = 0
+        self._cycle_complete = False
         self.initialized = True
 
-        # Register fonts
+        # Fonts and scroll
+        self._fonts: dict = self._load_fonts()
+        self.scroll_helper = ScrollHelper(self.display_width, self.display_height, logger=self.logger)
+        self._configure_scroll_settings()
+
+        # Register fonts with font manager for UI introspection
         self._register_fonts()
 
         # Log configuration
@@ -95,6 +106,31 @@ class StockNewsTickerPlugin(BasePlugin):
         self.logger.info("Stock news ticker plugin initialized")
         self.logger.info(f"Tracking symbols: {stock_symbols}")
         self.logger.info(f"Custom feeds: {custom_feeds}")
+
+    def _load_fonts(self) -> dict:
+        """Load PIL fonts for rendering."""
+        try:
+            font_path = 'assets/fonts/PressStart2P-Regular.ttf'
+            return {
+                'headline': ImageFont.truetype(font_path, self.font_size),
+                'symbol': ImageFont.truetype(font_path, self.font_size),
+            }
+        except IOError:
+            self.logger.warning("Press Start 2P font not found, using PIL default")
+            return {}
+
+    def _configure_scroll_settings(self) -> None:
+        """Configure ScrollHelper with plugin scroll settings."""
+        pixels_per_second = self.global_config.get('scroll_pixels_per_second', 25.0)
+        self.scroll_helper.set_scroll_speed(pixels_per_second)
+        target_fps = self.global_config.get('scroll_target_fps', 100.0)
+        if hasattr(self.scroll_helper, 'set_target_fps'):
+            self.scroll_helper.set_target_fps(target_fps)
+        self.scroll_helper.set_dynamic_duration_settings(
+            enabled=self.dynamic_duration,
+            min_duration=self.min_duration,
+            max_duration=self.max_duration,
+        )
 
     def _register_fonts(self):
         """Register fonts with the font manager."""
@@ -180,6 +216,8 @@ class StockNewsTickerPlugin(BasePlugin):
 
             self.last_update = time.time()
             self.logger.debug(f"Updated stock news: {len(self.all_news_items)} total items")
+            if hasattr(self, 'scroll_helper'):
+                self.scroll_helper.clear_cache()
 
         except Exception as e:
             self.logger.error(f"Error updating stock news: {e}")
@@ -299,13 +337,7 @@ class StockNewsTickerPlugin(BasePlugin):
         return headline
 
     def display(self, display_mode: str = None, force_clear: bool = False) -> None:
-        """
-        Display scrolling stock news headlines.
-
-        Args:
-            display_mode: Should be 'stock_news_ticker'
-            force_clear: If True, clear display before rendering
-        """
+        """Display scrolling stock news headlines."""
         if not self.initialized:
             self._display_error("Stock news ticker plugin not initialized")
             return
@@ -314,57 +346,81 @@ class StockNewsTickerPlugin(BasePlugin):
             self._display_no_news()
             return
 
-        # Display scrolling stock news
-        self._display_scrolling_stock_news()
+        if not self.scroll_helper.cached_image or force_clear:
+            self._create_scrolling_image()
+            if not self.scroll_helper.cached_image:
+                self._display_no_news()
+                return
+            self._cycle_complete = False
 
-    def _display_scrolling_stock_news(self):
-        """Display scrolling stock news headlines."""
-        try:
-            matrix_width = self.display_manager.matrix.width
-            matrix_height = self.display_manager.matrix.height
+        if force_clear:
+            self.scroll_helper.reset_scroll()
+            self._cycle_complete = False
 
-            # Create base image
-            img = Image.new('RGB', (matrix_width, matrix_height), (0, 0, 0))
-            draw = ImageDraw.Draw(img)
+        self.display_manager.set_scrolling_state(True)
+        self.display_manager.process_deferred_updates()
 
-            # For now, display first few news items (placeholder for scrolling implementation)
-            y_offset = 5
-            max_items = min(3, len(self.all_news_items))
+        self.scroll_helper.update_scroll_position()
+        if self.dynamic_duration and self.scroll_helper.is_scroll_complete():
+            self._cycle_complete = True
 
-            for i in range(max_items):
-                if i >= len(self.all_news_items):
-                    break
-
-                news_item = self.all_news_items[i]
-
-                # TODO: Implement scrolling ticker display
-                # TODO: Show symbol, headline, and source
-                # TODO: Use font manager for text rendering
-
-                # Simple placeholder display
-                symbol = news_item.get('symbol', news_item.get('feed_name', 'UNKNOWN'))
-                title = news_item.get('title', 'No title')
-
-                # Truncate for display
-                if len(title) > 25:
-                    title = title[:22] + "..."
-
-                draw.text((5, y_offset), f"{symbol}:", fill=self.symbol_color)
-                draw.text((45, y_offset), title, fill=self.text_color)
-
-                # Add separator between items
-                if i < max_items - 1:
-                    separator_y = y_offset + self.font_size + 2
-                    draw.text((5, separator_y), "---", fill=self.separator_color)
-
-                y_offset += self.font_size + 8
-
-            self.display_manager.image = img.copy()
+        visible_portion = self.scroll_helper.get_visible_portion()
+        if visible_portion:
+            self.display_manager.image.paste(visible_portion, (0, 0))
             self.display_manager.update_display()
 
+        self.scroll_helper.log_frame_rate()
+
+    def _create_scrolling_image(self) -> None:
+        """Build wide horizontal ticker image from all news items."""
+        try:
+            item_images = []
+            for news_item in self.all_news_items:
+                img = self._render_news_item(news_item)
+                if img:
+                    item_images.append(img)
+            if not item_images:
+                self.scroll_helper.clear_cache()
+                return
+            self.scroll_helper.create_scrolling_image(item_images, item_gap=48)
+            self._cycle_complete = False
+            self.logger.info(
+                "Created stock news image: %d items, scroll_width=%dpx",
+                len(item_images), self.scroll_helper.total_scroll_width,
+            )
         except Exception as e:
-            self.logger.error(f"Error displaying stock news: {e}")
-            self._display_error("Display error")
+            self.logger.error(f"Error creating stock news image: {e}")
+            self.scroll_helper.clear_cache()
+
+    def _render_news_item(self, news_item: dict) -> Optional[Image.Image]:
+        """Render one news item as a PIL image strip (symbol in yellow, headline in green)."""
+        try:
+            symbol = news_item.get('symbol', news_item.get('feed_name', '?'))
+            title = news_item.get('title', 'No title')
+            symbol_text = f"{symbol}: "
+
+            font_sym = self._fonts.get('symbol')
+            font_hl = self._fonts.get('headline')
+
+            draw_tmp = ImageDraw.Draw(Image.new('RGB', (1, 1)))
+            sym_bbox = draw_tmp.textbbox((0, 0), symbol_text, font=font_sym)
+            hl_bbox = draw_tmp.textbbox((0, 0), title, font=font_hl)
+
+            sym_w = sym_bbox[2] - sym_bbox[0]
+            hl_w = hl_bbox[2] - hl_bbox[0]
+            text_h = max(sym_bbox[3] - sym_bbox[1], hl_bbox[3] - hl_bbox[1])
+            gap = 4
+            total_w = sym_w + gap + hl_w
+
+            img = Image.new('RGB', (total_w, self.display_height), (0, 0, 0))
+            draw = ImageDraw.Draw(img)
+            y = max(0, (self.display_height - text_h) // 2)
+            draw.text((0, y), symbol_text, fill=self.symbol_color, font=font_sym)
+            draw.text((sym_w + gap, y), title, fill=self.text_color, font=font_hl)
+            return img
+        except Exception as e:
+            self.logger.warning(f"Error rendering news item: {e}")
+            return None
 
     def _display_no_news(self):
         """Display message when no news is available."""
