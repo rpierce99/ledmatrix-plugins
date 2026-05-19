@@ -26,7 +26,6 @@ import logging
 import random
 import time
 import requests
-import xml.etree.ElementTree as ET
 import html
 import re
 from datetime import datetime
@@ -35,6 +34,7 @@ from typing import Dict, Any, List, Optional, Tuple
 from PIL import Image, ImageDraw, ImageFont
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+import defusedxml.ElementTree as ET
 
 from src.plugin_system.base_plugin import BasePlugin
 from src.common.scroll_helper import ScrollHelper
@@ -149,6 +149,9 @@ class StockNewsTickerPlugin(BasePlugin):
         self.show_age = gc.get('show_age', True)
         self.show_price = gc.get('show_price', False)
 
+        # Cross-plugin sync
+        self.sync_with_stocks_plugin = gc.get('sync_with_stocks_plugin', False)
+
         # Colours
         self.text_color: Tuple = tuple(fc.get('text_color', [0, 255, 0]))
         self.symbol_color: Tuple = tuple(fc.get('symbol_color', [255, 255, 0]))
@@ -247,7 +250,10 @@ class StockNewsTickerPlugin(BasePlugin):
             return
 
         now = time.time()
-        stock_symbols = self.feeds_config.get('stock_symbols', [])
+        configured_symbols = self.feeds_config.get('stock_symbols', [])
+        synced_symbols = self._get_stocks_plugin_symbols()
+        # Merge: configured first, then any extras from stocks plugin (deduped, order preserved)
+        stock_symbols = list(dict.fromkeys(configured_symbols + synced_symbols))
         custom_feeds = self.feeds_config.get('custom_feeds', {})
         fetched = False
 
@@ -282,9 +288,27 @@ class StockNewsTickerPlugin(BasePlugin):
         if fetched:
             self._rebuild_all_news_items()
 
+    def _get_stocks_plugin_symbols(self) -> List[str]:
+        """Return equity symbols from the ledmatrix-stocks plugin when sync is enabled."""
+        if not self.sync_with_stocks_plugin:
+            return []
+        try:
+            stocks_plugin = self.plugin_manager.get_plugin('ledmatrix-stocks')
+            if stocks_plugin is None:
+                return []
+            stocks_cfg = getattr(stocks_plugin, 'config', {})
+            symbols = stocks_cfg.get('stocks', {}).get('symbols', [])
+            # Filter out index/crypto-style symbols that won't have news (^GSPC, BTC-USD)
+            equity = [s for s in symbols if s and not s.startswith('^') and '-' not in s]
+            return equity
+        except Exception as e:
+            self.logger.debug("[Stock News] Could not read ledmatrix-stocks symbols: %s", e)
+            return []
+
     def _rebuild_all_news_items(self) -> None:
         """Rebuild all_news_items from per-symbol cached data."""
-        stock_symbols = self.feeds_config.get('stock_symbols', [])
+        configured = self.feeds_config.get('stock_symbols', [])
+        stock_symbols = list(dict.fromkeys(configured + self._get_stocks_plugin_symbols()))
         custom_feeds = self.feeds_config.get('custom_feeds', {})
 
         all_items: list = []
@@ -590,7 +614,7 @@ class StockNewsTickerPlugin(BasePlugin):
     # Display
     # -------------------------------------------------------------------------
 
-    def display(self, display_mode: str = None, force_clear: bool = False) -> None:
+    def display(self, display_mode: Optional[str] = None, force_clear: bool = False) -> None:
         if not self.initialized:
             self._display_error("Stock news ticker not initialized")
             return

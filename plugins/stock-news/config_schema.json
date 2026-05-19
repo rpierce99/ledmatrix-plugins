@@ -47,6 +47,11 @@
           "default": false,
           "description": "Show current market price (e.g. '$189.42') before the headline"
         },
+        "sync_with_stocks_plugin": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically track the same stocks watched in the Stock Ticker plugin (ledmatrix-stocks). Synced symbols are merged with any symbols configured above."
+        },
         "item_gap": {
           "type": "integer",
           "default": 0,
@@ -193,7 +198,7 @@
           "default": 2,
           "minimum": 1,
           "maximum": 10,
-          "description": "Data older than update_interval × this factor dims the ticker colours"
+          "description": "Data older than update_interval_seconds × this factor dims the ticker colours"
         },
         "logo_fetch_enabled": {
           "type": "boolean",
@@ -244,7 +249,7 @@
           "uniqueItems": true,
           "maxItems": 50,
           "default": ["AAPL", "GOOGL", "MSFT"],
-          "description": "Stock symbols — headlines fetched from Yahoo Finance. Fetches are spread across update_interval."
+          "description": "Stock symbols — headlines fetched from Yahoo Finance. Fetches are spread across update_interval_seconds."
         },
         "custom_feeds": {
           "type": "object",
