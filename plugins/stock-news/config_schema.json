@@ -202,10 +202,10 @@
         },
         "logo_size": {
           "type": "integer",
-          "default": 16,
-          "minimum": 8,
-          "maximum": 48,
-          "description": "Logo height in pixels (width scales proportionally)"
+          "default": 0,
+          "minimum": 0,
+          "maximum": 128,
+          "description": "Logo height in pixels. Set to 0 for auto (= display height). Width scales freely to maintain aspect ratio."
         },
         "logo_url_template": {
           "type": "string",

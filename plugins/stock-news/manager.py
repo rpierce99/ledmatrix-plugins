@@ -64,6 +64,7 @@ class StockNewsTickerPlugin(BasePlugin):
         # State — persistent across update cycles
         self.all_news_items: list = []
         self._symbol_data: Dict[str, List] = {}   # per-symbol/feed headline cache
+        self._logo_failed: set = set()            # symbols whose logo download failed this session
         self._feed_last_fetch: Dict[str, float] = {}
         self._fetch_index: int = 0                # rotating symbol index
         self._last_symbol_fetch: float = 0
@@ -134,7 +135,9 @@ class StockNewsTickerPlugin(BasePlugin):
 
         # Display style
         self.display_style = gc.get('display_style', 'logo_and_ticker')
-        self.logo_size = gc.get('logo_size', min(self.display_height, 32))
+        # 0 → auto: fill the full display height so logos use all available vertical space
+        raw_ls = gc.get('logo_size', 0)
+        self.logo_size = int(raw_ls) if raw_ls and int(raw_ls) > 0 else self.display_height
         self.logo_fetch_enabled = gc.get('logo_fetch_enabled', True)
         self.logo_url_template = gc.get(
             'logo_url_template',
@@ -545,13 +548,27 @@ class StockNewsTickerPlugin(BasePlugin):
     # -------------------------------------------------------------------------
 
     def _get_symbol_logo(self, symbol: str) -> Optional[Image.Image]:
+        """Return a logo PIL Image sized to display_height, downloading once if needed.
+
+        Logos are constrained by height only (max_width is generous) so landscape
+        company logos render at full panel height without being squeezed into a square.
+        Failed downloads are remembered for the session to avoid repeated attempts.
+        """
         if not self.logo_fetch_enabled:
             return None
+        if symbol in self._logo_failed:
+            return None
+
+        # Width can be up to 4× height — lets landscape logos breathe
+        max_w = self.logo_size * 4
+
         logo_path = self._logo_dir / f"{symbol}.png"
         if logo_path.exists():
             return self.logo_helper.load_logo(symbol, logo_path,
-                                              max_width=self.logo_size,
+                                              max_width=max_w,
                                               max_height=self.logo_size)
+
+        # Download and cache to disk on first use
         url = self.logo_url_template.replace('{symbol}', symbol)
         try:
             resp = self._session.get(url, timeout=10)
@@ -559,10 +576,14 @@ class StockNewsTickerPlugin(BasePlugin):
                 logo_path.write_bytes(resp.content)
                 self.logger.info("[Stock News] Downloaded logo for %s", symbol)
                 return self.logo_helper.load_logo(symbol, logo_path,
-                                                  max_width=self.logo_size,
+                                                  max_width=max_w,
                                                   max_height=self.logo_size)
+            self.logger.debug("[Stock News] Logo not available for %s (HTTP %d)",
+                              symbol, resp.status_code)
         except Exception as e:
             self.logger.debug("[Stock News] Logo fetch failed for %s: %s", symbol, e)
+
+        self._logo_failed.add(symbol)
         return None
 
     # -------------------------------------------------------------------------
