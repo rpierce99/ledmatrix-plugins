@@ -109,6 +109,7 @@ class StockNewsTickerPlugin(BasePlugin):
         self._rotation_count: int = 0
         self._items_rotated: int = 0   # tracks full-cycle completions for shuffle
         self._cycle_complete: bool = False
+        self._vegas_cache: Optional[list] = None
         self.last_update: float = 0
         self.initialized = True
 
@@ -140,16 +141,18 @@ class StockNewsTickerPlugin(BasePlugin):
     # -------------------------------------------------------------------------
 
     def _load_fonts(self) -> dict:
-        """Load PIL fonts for rendering."""
-        try:
-            font_path = 'assets/fonts/PressStart2P-Regular.ttf'
-            return {
-                'headline': ImageFont.truetype(font_path, self.font_size),
-                'symbol': ImageFont.truetype(font_path, self.font_size),
-            }
-        except IOError:
-            self.logger.warning("Press Start 2P font not found, using PIL default")
-            return {}
+        """Load PIL fonts with three-level fallback: configured path → 4x6 bitmap → PIL default."""
+        configured = self.global_config.get('font_path', 'assets/fonts/PressStart2P-Regular.ttf')
+        fallbacks = [configured, 'assets/fonts/4x6-font.ttf']
+        for path in fallbacks:
+            try:
+                font = ImageFont.truetype(path, self.font_size)
+                self.logger.debug("[Stock News] Loaded font: %s @ %dpx", path, self.font_size)
+                return {'headline': font, 'symbol': font}
+            except IOError:
+                continue
+        self.logger.warning("[Stock News] No TTF font found, using PIL default")
+        return {}
 
     def _configure_scroll_settings(self) -> None:
         """Configure ScrollHelper with plugin scroll settings (supports legacy keys)."""
@@ -257,6 +260,7 @@ class StockNewsTickerPlugin(BasePlugin):
             if hasattr(self, 'scroll_helper'):
                 self.scroll_helper.clear_cache()
                 self.scroll_helper.reset_scroll()
+            self._vegas_cache = None
 
         except Exception as e:
             self.logger.error(f"[Stock News] update() error: {e}")
@@ -483,14 +487,7 @@ class StockNewsTickerPlugin(BasePlugin):
                 self._rotation_count += 1
                 if self._rotation_count >= self.rotation_threshold:
                     self._rotation_count = 0
-                    if len(self.all_news_items) > 1:
-                        self.all_news_items = self.all_news_items[1:] + self.all_news_items[:1]
-                        self._items_rotated += 1
-                        # After every item has had a turn at the front, reshuffle
-                        if self.shuffle_headlines and self._items_rotated >= len(self.all_news_items):
-                            random.shuffle(self.all_news_items)
-                            self._items_rotated = 0
-                            self.logger.debug("[Stock News] Reshuffled headlines")
+                    self._rotate_headlines()
                     self.scroll_helper.clear_cache()
                     self.scroll_helper.reset_scroll()
                     return  # next display() call rebuilds with rotated order
@@ -587,17 +584,115 @@ class StockNewsTickerPlugin(BasePlugin):
             self.logger.warning(f"[Stock News] Render error: {e}")
             return None
 
+    def _rotate_headlines(self) -> None:
+        """Move the front headline to the end, optionally reshuffling after a full cycle."""
+        if len(self.all_news_items) <= 1:
+            return
+        first = self.all_news_items[0]
+        self.all_news_items = self.all_news_items[1:] + [first]
+        self._items_rotated += 1
+        self.logger.info(
+            "[Stock News] Rotated: '%s...' moved to end — now showing '%s...' first",
+            first.get('title', '')[:40],
+            self.all_news_items[0].get('title', '')[:40],
+        )
+        if self.shuffle_headlines and self._items_rotated >= len(self.all_news_items):
+            random.shuffle(self.all_news_items)
+            self._items_rotated = 0
+            self.logger.info("[Stock News] Full rotation complete — reshuffled")
+        self._vegas_cache: Optional[list] = None  # invalidate Vegas cache
+
+    # -------------------------------------------------------------------------
+    # Config hot-reload
+    # -------------------------------------------------------------------------
+
+    def on_config_change(self, new_config: Dict[str, Any]) -> None:
+        """Apply live configuration changes without restarting the plugin."""
+        super().on_config_change(new_config)
+
+        old_symbols = set(self.feeds_config.get('stock_symbols', []))
+        old_custom = set(self.feeds_config.get('custom_feeds', {}).keys())
+        old_font_size = self.font_size
+
+        self.feeds_config = new_config.get('feeds', {})
+        self.global_config = new_config.get('global', {})
+
+        # Scroll / display
+        self.display_duration = self.global_config.get('display_duration', 30)
+        self.scroll_speed = self.global_config.get('scroll_speed', 1)
+        self.scroll_delay = self.global_config.get('scroll_delay', 0.01)
+        self.dynamic_duration = self.global_config.get('dynamic_duration', True)
+        self.min_duration = self.global_config.get('min_duration', 30)
+        self.max_duration = self.global_config.get('max_duration', 300)
+        self.max_headlines_per_symbol = self.global_config.get('max_headlines_per_symbol', 1)
+        self.headlines_per_rotation = self.global_config.get('headlines_per_rotation', 2)
+        self.rotation_enabled = self.global_config.get('rotation_enabled', True)
+        self.rotation_threshold = self.global_config.get('rotation_threshold', 1)
+        self.shuffle_headlines = self.global_config.get('shuffle_headlines', True)
+        self.show_publisher = self.global_config.get('show_publisher', True)
+        self.font_size = self.global_config.get('font_size', 10)
+
+        # Rate limits
+        self.update_interval = self.global_config.get('update_interval_seconds', 900)
+        self.max_daily_requests = self.global_config.get('max_daily_requests', 200)
+        self.max_requests_per_hour = self.global_config.get('max_requests_per_hour', 50)
+
+        # Display style / logo
+        self.display_style = self.global_config.get('display_style', 'logo_and_ticker')
+        self.logo_size = self.global_config.get('logo_size', min(self.display_height, 32))
+        self.logo_fetch_enabled = self.global_config.get('logo_fetch_enabled', True)
+        self.logo_url_template = self.global_config.get(
+            'logo_url_template',
+            'https://financialmodelingprep.com/image-stock/{symbol}.png'
+        )
+
+        # Colors
+        self.text_color = tuple(self.feeds_config.get('text_color', [0, 255, 0]))
+        self.symbol_color = tuple(self.feeds_config.get('symbol_color', [255, 255, 0]))
+
+        # Background service
+        self.background_config = self.global_config.get('background_service', {
+            'enabled': True, 'request_timeout': 30,
+        })
+
+        # Re-apply scroll settings
+        self._configure_scroll_settings()
+
+        # Reload fonts if size changed
+        if self.font_size != old_font_size:
+            self._fonts = self._load_fonts()
+            self._register_fonts()
+            self.logger.info("[Stock News] Fonts reloaded at %dpx", self.font_size)
+
+        # Force refetch if feeds changed
+        new_symbols = set(self.feeds_config.get('stock_symbols', []))
+        new_custom = set(self.feeds_config.get('custom_feeds', {}).keys())
+        if new_symbols != old_symbols or new_custom != old_custom:
+            self.logger.info("[Stock News] Feed config changed — forcing refresh")
+            self.last_update = 0
+
+        # Always invalidate the scroll cache so colours/style take effect immediately
+        self.scroll_helper.clear_cache()
+        self.scroll_helper.reset_scroll()
+        self._vegas_cache = None
+
     # -------------------------------------------------------------------------
     # Vegas scroll mode
     # -------------------------------------------------------------------------
 
     def get_vegas_content(self) -> Optional[list]:
-        """Return list of item images for Vegas continuous scroll."""
+        """Return cached rendered item images for Vegas continuous scroll."""
         if not self.all_news_items:
             return None
-        images = [self._render_news_item(item) for item in self.all_news_items]
-        result = [img for img in images if img is not None]
-        return result if result else None
+        if self._vegas_cache is None:
+            rendered = [self._render_news_item(item) for item in self.all_news_items]
+            self._vegas_cache = [img for img in rendered if img is not None]
+            total_px = sum(img.width for img in self._vegas_cache)
+            self.logger.info(
+                "[Stock News] Vegas cache built: %d items, %dpx total",
+                len(self._vegas_cache), total_px,
+            )
+        return self._vegas_cache if self._vegas_cache else None
 
     def get_vegas_content_type(self) -> str:
         return 'multi'
@@ -625,7 +720,12 @@ class StockNewsTickerPlugin(BasePlugin):
     # -------------------------------------------------------------------------
 
     def get_display_duration(self) -> float:
-        return self.display_duration
+        """Return ScrollHelper's dynamically calculated duration when enabled."""
+        if self.dynamic_duration:
+            d = self.scroll_helper.get_dynamic_duration()
+            if d > 0:
+                return float(d)
+        return float(self.display_duration)
 
     def get_info(self) -> Dict[str, Any]:
         info = super().get_info()
@@ -634,7 +734,15 @@ class StockNewsTickerPlugin(BasePlugin):
             'stock_symbols': self.feeds_config.get('stock_symbols', []),
             'custom_feeds': list(self.feeds_config.get('custom_feeds', {}).keys()),
             'last_update': self.last_update,
+            'display_duration': self.display_duration,
+            'dynamic_duration': self.dynamic_duration,
             'display_style': self.display_style,
+            'show_publisher': self.show_publisher,
+            'shuffle_headlines': self.shuffle_headlines,
+            'rotation_enabled': self.rotation_enabled,
+            'rotation_threshold': self.rotation_threshold,
+            'logo_fetch_enabled': self.logo_fetch_enabled,
+            'logo_size': self.logo_size,
             'requests_today': self._requests_today,
             'requests_this_hour': len(self._request_timestamps),
             'max_daily_requests': self.max_daily_requests,
@@ -649,4 +757,9 @@ class StockNewsTickerPlugin(BasePlugin):
 
     def cleanup(self) -> None:
         self.all_news_items = []
+        self._vegas_cache = None
+        if hasattr(self, 'scroll_helper'):
+            self.scroll_helper.clear_cache()
+        if hasattr(self, '_session'):
+            self._session.close()
         self.logger.info("[Stock News] Plugin cleaned up")
