@@ -1,7 +1,7 @@
 {
   "id": "of-the-day",
   "name": "Of The Day Display",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "author": "ChuckBuilds",
   "description": "Display daily featured content like Word of the Day, Bible verses, or custom daily items. Supports multiple categories with rotating display and configurable data sources.",
   "category": "information",
@@ -22,6 +22,11 @@
   ],
   "versions": [
     {
+      "released": "2026-05-26",
+      "version": "1.1.0",
+      "ledmatrix_min": "2.0.0"
+    },
+    {
       "released": "2026-05-15",
       "version": "1.0.2",
       "ledmatrix_min": "2.0.0"
@@ -32,7 +37,7 @@
       "ledmatrix_min_version": "2.0.0"
     }
   ],
-  "last_updated": "2026-05-15",
+  "last_updated": "2026-05-26",
   "stars": 0,
   "downloads": 0,
   "verified": true,
