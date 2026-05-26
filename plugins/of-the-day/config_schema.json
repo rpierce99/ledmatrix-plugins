@@ -76,9 +76,37 @@
     "file_manager": {
       "type": "null",
       "title": "Data Files",
-      "x-widget": "custom-html",
-      "x-html-file": "web_ui/file_manager.html",
-      "description": "Manage your Of The Day JSON data files"
+      "description": "Manage your Of The Day JSON data files",
+      "x-widget": "json-file-manager",
+      "x-widget-config": {
+        "actions": {
+          "list":   "list-files",
+          "get":    "get-file",
+          "save":   "save-file",
+          "upload": "upload-file",
+          "delete": "delete-file",
+          "create": "create-file",
+          "toggle": "toggle-category"
+        },
+        "upload_hint":    "JSON files with day numbers 1–365 as keys",
+        "directory_label": "of_the_day/",
+        "create_fields": [
+          {
+            "key":         "category_name",
+            "label":       "Category Name",
+            "placeholder": "e.g., my_words",
+            "pattern":     "^[a-z0-9_]+$",
+            "hint":        "Lowercase letters, numbers, underscores — used as filename"
+          },
+          {
+            "key":         "display_name",
+            "label":       "Display Name",
+            "placeholder": "e.g., My Words",
+            "hint":        "Shown in plugin configuration (leave blank to auto-generate)"
+          }
+        ],
+        "toggle_key": "category_name"
+      }
     }
   },
   "required": ["enabled"]
