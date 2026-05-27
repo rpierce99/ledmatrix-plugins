@@ -569,7 +569,6 @@ class WeatherPlugin(BasePlugin):
         for i, t in enumerate(times):
             try:
                 ts = int(datetime.fromisoformat(t).replace(tzinfo=tz).timestamp())
-<<<<<<< HEAD
             except (ValueError, OverflowError, OSError) as exc:
                 self.logger.debug("Skipping hourly entry with unparseable time %r: %s", t, exc)
                 continue
