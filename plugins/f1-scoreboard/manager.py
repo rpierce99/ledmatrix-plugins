@@ -420,7 +420,8 @@ class F1ScoreboardPlugin(BasePlugin):
                 None)
             if fav_entry:
                 spotlight = r.render_favorite_driver_spotlight(
-                    fav_entry, is_live=is_live, live_session=live_sess)
+                    fav_entry, is_live=is_live, live_session=live_sess,
+                    recent_races=self._recent_races)
                 self._scroll_manager.prepare_and_display(
                     "driver_spotlight", [spotlight], separator)
 

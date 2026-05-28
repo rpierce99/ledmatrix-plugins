@@ -1498,7 +1498,8 @@ class F1Renderer:
 
     def render_favorite_driver_spotlight(
             self, driver_entry: Dict,
-            is_live: bool = False, live_session: str = "") -> Image.Image:
+            is_live: bool = False, live_session: str = "",
+            recent_races: List[Dict] = None) -> Image.Image:
         """
         Hero card for the tracked driver. Full width, rich team-color background.
 
@@ -1571,22 +1572,66 @@ class F1Renderer:
             self._draw_text_outlined(draw, (x, row2_y), team_disp, self.fonts["small"],
                                      fill=_team_color_bright(cid))
 
-        # ── Row 3: Wins · Poles + "MY DRIVER" badge ─────────────
+        # ── Row 3: Wins · Poles + recent form boxes + "MY DRIVER" badge ────
         row3_y = row2_y + self._th(draw, "A", self.fonts["small"]) + 2 if row2_y + 5 < content_h else row2_y
         if row3_y + 5 < content_h:
             wins = driver_entry.get("wins", 0)
             poles = driver_entry.get("poles", 0)
             wp_text = f"{wins}W  {poles}P"
             draw.text((x, row3_y), wp_text, font=self.fonts["small"], fill=(130, 130, 130))
+            wp_right = x + self._tw(draw, wp_text, self.fonts["small"]) + 3
 
-            label = "MY DRIVER"
-            lw2 = self._tw(draw, label, self.fonts["small"]) + 4
-            lx = self.display_width - lw2 - 1
-            # Badge for "MY DRIVER"
+            badge_label = "MY DRIVER"
+            badge_lw = self._tw(draw, badge_label, self.fonts["small"]) + 4
+            badge_x = self.display_width - badge_lw - 1
             badge_col = tuple(max(0, int(c * 0.35)) for c in tc)
-            draw.rectangle([lx, row3_y - 1, lx + lw2, row3_y + self._th(draw, label, self.fonts["small"]) + 1],
+            draw.rectangle([badge_x, row3_y - 1, badge_x + badge_lw,
+                            row3_y + self._th(draw, badge_label, self.fonts["small"]) + 1],
                            fill=badge_col)
-            draw.text((lx + 2, row3_y), label, font=self.fonts["small"], fill=_team_color_bright(cid))
+            draw.text((badge_x + 2, row3_y), badge_label,
+                      font=self.fonts["small"], fill=_team_color_bright(cid))
+
+            # Recent form boxes: last N race positions for this driver
+            if recent_races:
+                drv_code = driver_entry.get("code", "")
+                pos_history: List[Any] = []
+                for rrace in recent_races:
+                    all_results = rrace.get("all_results", rrace.get("results", []))
+                    for rr in all_results:
+                        if rr.get("code", "") == drv_code:
+                            pos = rr.get("position", 0)
+                            status = rr.get("status", "")
+                            is_dnf = (status and status not in ("Finished", "")
+                                      and not status.startswith("+"))
+                            pos_history.append("DNF" if is_dnf else (int(pos) if pos else 20))
+                            break
+
+                box_sz = max(4, self._th(draw, "A", self.fonts["small"]))
+                n_boxes = len(pos_history)
+                boxes_w = n_boxes * (box_sz + 1)
+                avail = badge_x - 4 - wp_right
+                if n_boxes > 0 and boxes_w <= avail:
+                    bx0 = badge_x - 4 - boxes_w
+                    for j, pv in enumerate(pos_history):
+                        bx = bx0 + j * (box_sz + 1)
+                        if pv == "DNF":
+                            bg, fg, lbl = (70, 15, 15), (200, 70, 70), "R"
+                        elif pv == 1:
+                            bg, fg, lbl = (55, 42, 0), (255, 210, 0), "1"
+                        elif pv == 2:
+                            bg, fg, lbl = (38, 38, 38), (195, 195, 195), "2"
+                        elif pv == 3:
+                            bg, fg, lbl = (45, 23, 0), (195, 110, 45), "3"
+                        elif pv <= 10:
+                            bg, fg, lbl = (0, 38, 18), (0, 170, 80), str(pv)
+                        else:
+                            bg, fg, lbl = (22, 22, 22), (90, 90, 90), str(pv)
+                        draw.rectangle([bx, row3_y, bx + box_sz - 1, row3_y + box_sz - 1], fill=bg)
+                        lw_ = self._tw(draw, lbl, self.fonts["small"])
+                        lh_ = self._th(draw, lbl, self.fonts["small"])
+                        draw.text((bx + max(0, (box_sz - lw_) // 2),
+                                   row3_y + max(0, (box_sz - lh_) // 2)),
+                                  lbl, font=self.fonts["small"], fill=fg)
 
         if is_live and live_session:
             self._draw_live_badge(draw, live_session)
