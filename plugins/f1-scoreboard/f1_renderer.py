@@ -74,6 +74,27 @@ class F1Renderer:
         # ~30% of display width, minimum 34px, maximum 48px
         self.stat_zone_w = max(34, min(48, int(display_width * 0.30)))
 
+        # ── Visual feature flags (from config["visual"]) ──────────────
+        vis = self.config.get("visual", {})
+
+        fl = vis.get("fastest_lap_dot", {})
+        self.show_fl_dot = fl.get("enabled", True)
+        raw_color = fl.get("color", [180, 0, 255])
+        self.fl_dot_color = tuple(raw_color) if isinstance(raw_color, (list, tuple)) else (180, 0, 255)
+
+        gb = vis.get("gap_bar", {})
+        self.show_gap_bar = gb.get("enabled", True)
+
+        hdr = vis.get("standings_header", {})
+        self.show_standings_header = hdr.get("enabled", True)
+        self.standings_header_show_round = hdr.get("show_round", True)
+
+        cm = vis.get("circuit_map", {})
+        self.show_circuit_map = cm.get("enabled", True)
+
+        cl = vis.get("championship_leaders", {})
+        self.show_championship_leaders = cl.get("enabled", True)
+
         self.fonts = self._load_fonts()
 
     def _load_fonts(self) -> Dict[str, Any]:
@@ -234,7 +255,7 @@ class F1Renderer:
         y += self._th(draw, "A", self.fonts["detail"]) + 2
 
         # Season year + round info
-        if round_num > 0:
+        if round_num > 0 and self.standings_header_show_round:
             year_text = str(season)
             rd_text = f"Rd {round_num}/{total_rounds}"
             self._draw_text_outlined(draw, (4, y), year_text, self.fonts["small"], fill=(100, 100, 100))
@@ -282,7 +303,8 @@ class F1Renderer:
         # Gap bar at bottom
         gap_h = max(2, self.display_height // 16)
         content_h = self.display_height - gap_h
-        self._draw_gap_bar(draw, entry, cid)
+        if self.show_gap_bar:
+            self._draw_gap_bar(draw, entry, cid)
 
         # Accent bar (wider for favorites)
         self._draw_accent_bar(draw, cid, extra=1 if is_fav else 0)
@@ -360,7 +382,8 @@ class F1Renderer:
 
         gap_h = max(2, self.display_height // 16)
         content_h = self.display_height - gap_h
-        self._draw_gap_bar(draw, entry, cid)
+        if self.show_gap_bar:
+            self._draw_gap_bar(draw, entry, cid)
         self._draw_accent_bar(draw, cid, extra=1 if is_fav else 0)
         x = self.accent_bar_width + (1 if is_fav else 0) + 2
 
@@ -513,11 +536,11 @@ class F1Renderer:
                 gap_trunc = self._truncate(draw, gap_str, self.fonts["small"], section_w - 4)
                 draw.text((x0 + 2, gap_y), gap_trunc, font=self.fonts["small"], fill=gap_color)
 
-            # Fastest lap: purple 3×3 dot in top-right corner of section
-            if r.get("fastest_lap", False):
+            # Fastest lap: 3×3 dot in top-right corner of section
+            if self.show_fl_dot and r.get("fastest_lap", False):
                 fl_x = x1 - 4
                 fl_y = podium_y + 2
-                draw.rectangle([fl_x, fl_y, fl_x + 2, fl_y + 2], fill=(180, 0, 255))
+                draw.rectangle([fl_x, fl_y, fl_x + 2, fl_y + 2], fill=self.fl_dot_color)
 
             # Team color line at bottom
             draw.rectangle([x0 + 1, self.display_height - 2, x1 - 1, self.display_height - 1],
@@ -698,11 +721,13 @@ class F1Renderer:
         draw = ImageDraw.Draw(img)
 
         # Circuit image on RIGHT
-        circuit_img = self.logo_loader.get_circuit_image(
-            circuit_name=race.get("circuit_name", ""),
-            city=race.get("city", ""),
-            max_height=self.display_height - 4,
-            max_width=int(self.display_width * 0.38))
+        circuit_img = None
+        if self.show_circuit_map:
+            circuit_img = self.logo_loader.get_circuit_image(
+                circuit_name=race.get("circuit_name", ""),
+                city=race.get("city", ""),
+                max_height=self.display_height - 4,
+                max_width=int(self.display_width * 0.38))
 
         if circuit_img:
             cx = self.display_width - circuit_img.width - 2
@@ -907,7 +932,8 @@ class F1Renderer:
         # Gap bar
         gap_h = max(2, self.display_height // 16)
         content_h = self.display_height - gap_h
-        self._draw_gap_bar(draw, driver_entry, cid)
+        if self.show_gap_bar:
+            self._draw_gap_bar(draw, driver_entry, cid)
 
         # Thick accent bar
         accent_w = max(4, self.accent_bar_width + 2)
@@ -1000,7 +1026,8 @@ class F1Renderer:
 
         gap_h = max(2, self.display_height // 16)
         content_h = self.display_height - gap_h
-        self._draw_gap_bar(draw, team_entry, cid)
+        if self.show_gap_bar:
+            self._draw_gap_bar(draw, team_entry, cid)
 
         accent_w = max(4, self.accent_bar_width + 2)
         draw.rectangle([0, 0, accent_w - 1, self.display_height - 1], fill=tc)

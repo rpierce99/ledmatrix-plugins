@@ -374,7 +374,7 @@ class F1ScoreboardPlugin(BasePlugin):
         live_sess = self._live_session
 
         # Championship leaders intro card (very first in Vegas scroll)
-        if self._driver_standings and self._constructor_standings:
+        if r.show_championship_leaders and self._driver_standings and self._constructor_standings:
             drv_leader = self._driver_standings[0] if self._driver_standings else None
             con_leader = self._constructor_standings[0] if self._constructor_standings else None
             if drv_leader and con_leader:
@@ -421,23 +421,27 @@ class F1ScoreboardPlugin(BasePlugin):
 
         # Driver standings
         if self._driver_standings:
-            header = r.render_standings_header(
-                "DRIVER STANDINGS", round_num=round_num,
-                total_rounds=total_rounds, season=season)
-            cards = [header] + [r.render_driver_standing(
+            cards = []
+            if r.show_standings_header:
+                cards.append(r.render_standings_header(
+                    "DRIVER STANDINGS", round_num=round_num,
+                    total_rounds=total_rounds, season=season))
+            cards += [r.render_driver_standing(
                         e, is_live=is_live, live_session=live_sess)
-                    for e in self._driver_standings]
+                      for e in self._driver_standings]
             self._scroll_manager.prepare_and_display(
                 "driver_standings", cards, separator)
 
         # Constructor standings
         if self._constructor_standings:
-            header = r.render_standings_header(
-                "CONSTRUCTOR STANDINGS", round_num=round_num,
-                total_rounds=total_rounds, season=season)
-            cards = [header] + [r.render_constructor_standing(
+            cards = []
+            if r.show_standings_header:
+                cards.append(r.render_standings_header(
+                    "CONSTRUCTOR STANDINGS", round_num=round_num,
+                    total_rounds=total_rounds, season=season))
+            cards += [r.render_constructor_standing(
                         e, is_live=is_live, live_session=live_sess)
-                    for e in self._constructor_standings]
+                      for e in self._constructor_standings]
             self._scroll_manager.prepare_and_display(
                 "constructor_standings", cards, separator)
 

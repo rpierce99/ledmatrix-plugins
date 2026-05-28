@@ -352,6 +352,105 @@
       },
       "additionalProperties": false
     },
+    "visual": {
+      "type": "object",
+      "title": "Visual Features",
+      "description": "Enable or disable individual visual elements and set their colors",
+      "properties": {
+        "fastest_lap_dot": {
+          "type": "object",
+          "title": "Fastest Lap Dot",
+          "description": "Small colored dot shown on the driver who set the fastest lap in a race result",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "title": "Enabled",
+              "default": true,
+              "description": "Show a dot on the driver with the fastest lap"
+            },
+            "color": {
+              "type": "array",
+              "title": "Color (RGB)",
+              "items": { "type": "integer", "minimum": 0, "maximum": 255 },
+              "minItems": 3,
+              "maxItems": 3,
+              "default": [180, 0, 255],
+              "description": "RGB color of the fastest lap dot (default: purple [180, 0, 255])"
+            }
+          },
+          "x-propertyOrder": ["enabled", "color"],
+          "additionalProperties": false
+        },
+        "gap_bar": {
+          "type": "object",
+          "title": "Championship Gap Bar",
+          "description": "Horizontal bar showing championship points gap to leader in standings",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "title": "Enabled",
+              "default": true,
+              "description": "Show the points gap bar in driver and constructor standings"
+            }
+          },
+          "x-propertyOrder": ["enabled"],
+          "additionalProperties": false
+        },
+        "standings_header": {
+          "type": "object",
+          "title": "Standings Header Card",
+          "description": "Intro card shown before driver and constructor standings with F1 logo and season progress",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "title": "Enabled",
+              "default": true,
+              "description": "Show the standings header card before scrolling through standings"
+            },
+            "show_round": {
+              "type": "boolean",
+              "title": "Show Round Info",
+              "default": true,
+              "description": "Show current round number and season progress bar on the header card"
+            }
+          },
+          "x-propertyOrder": ["enabled", "show_round"],
+          "additionalProperties": false
+        },
+        "circuit_map": {
+          "type": "object",
+          "title": "Circuit Map",
+          "description": "Circuit layout image shown on the upcoming race card",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "title": "Enabled",
+              "default": true,
+              "description": "Show circuit layout diagram on the upcoming race card"
+            }
+          },
+          "x-propertyOrder": ["enabled"],
+          "additionalProperties": false
+        },
+        "championship_leaders": {
+          "type": "object",
+          "title": "Championship Leaders Card",
+          "description": "Split card showing current driver and constructor championship leaders at the start of the scroll",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "title": "Enabled",
+              "default": true,
+              "description": "Show the championship leaders intro card in the scroll sequence"
+            }
+          },
+          "x-propertyOrder": ["enabled"],
+          "additionalProperties": false
+        }
+      },
+      "x-propertyOrder": ["fastest_lap_dot", "gap_bar", "standings_header", "circuit_map", "championship_leaders"],
+      "additionalProperties": false
+    },
     "customization": {
       "type": "object",
       "title": "Display Customization",
@@ -450,7 +549,7 @@
       "additionalProperties": false
     }
   },
-  "x-propertyOrder": ["enabled", "display_duration", "update_interval", "favorite_team", "favorite_driver", "driver_standings", "constructor_standings", "recent_races", "upcoming", "qualifying", "practice", "sprint", "calendar", "dynamic_duration", "scroll", "customization"],
+  "x-propertyOrder": ["enabled", "display_duration", "update_interval", "favorite_team", "favorite_driver", "driver_standings", "constructor_standings", "recent_races", "upcoming", "qualifying", "practice", "sprint", "calendar", "dynamic_duration", "scroll", "visual", "customization"],
   "additionalProperties": false,
   "required": ["enabled"]
 }
