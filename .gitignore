@@ -38,3 +38,6 @@ config_secrets.json
 
 # Secrets (plugin-level)
 plugins/**/config_secrets.json
+
+# Asset backups (local working copies)
+plugins/*/assets/**/*_backup/
