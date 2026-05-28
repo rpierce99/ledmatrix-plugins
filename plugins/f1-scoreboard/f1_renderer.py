@@ -859,6 +859,90 @@ class F1Renderer:
 
         return img
 
+    # ─── Recent Race Winners Summary Card ─────────────────────────────
+
+    def render_recent_winners_card(self, recent_races: List[Dict]) -> Image.Image:
+        """
+        Compact summary card: one row per recent race showing the winner.
+        Row: team accent bar | race short name | team name | winner code.
+        Shown at the start of the recent races scroll section.
+        """
+        img = Image.new("RGBA", (self.display_width, self.display_height), (0, 0, 0, 255))
+        draw = ImageDraw.Draw(img)
+
+        n = len(recent_races)
+
+        # Header
+        header_h = self._th(draw, "A", self.fonts["detail"]) + 1
+        draw.rectangle([0, 0, self.display_width - 1, header_h + 1], fill=(20, 0, 0))
+        title = f"WINNERS L{n}"
+        title_w = self._tw(draw, title, self.fonts["detail"])
+        self._draw_text_outlined(draw, ((self.display_width - title_w) // 2, 1),
+                                 title, self.fonts["detail"], fill=F1_RED)
+
+        content_y = header_h + 2
+        content_h = self.display_height - content_y - 1
+        row_h = max(5, content_h // max(1, n))
+
+        for i, race in enumerate(recent_races):
+            row_y = content_y + i * row_h
+            if row_y >= self.display_height - 2:
+                break
+
+            results = race.get("results", [])
+            if not results:
+                continue
+
+            winner = results[0]
+            cid = winner.get("constructor_id", "")
+            code = winner.get("code", "???")
+            tc = get_team_color(cid)
+            tc_bright = _team_color_bright(cid, min_max=130)
+
+            row_bot = min(row_y + row_h - 1, self.display_height - 2)
+
+            # Team accent bar
+            draw.rectangle([0, row_y, 2, row_bot], fill=tc)
+
+            # Race name (short)
+            race_name = race.get("race_name", "")
+            short = (race_name
+                     .replace("Grand Prix", "GP")
+                     .replace("Las Vegas", "LV")
+                     .replace("Abu Dhabi", "Abu D")
+                     .replace("Saudi Arabian", "Saudi"))
+
+            text_h = self._th(draw, "A", self.fonts["small"])
+            cy = row_y + max(0, (row_h - text_h) // 2)
+
+            # Right side: winner code then team name (left of code)
+            code_w = self._tw(draw, code, self.fonts["small"])
+            code_x = self.display_width - code_w - 2
+            draw.text((code_x, cy), code, font=self.fonts["small"], fill=tc_bright)
+
+            team_abbr = _team_short(cid)
+            team_dim = tuple(max(0, int(c * 0.55)) for c in tc_bright)
+            team_w = self._tw(draw, team_abbr, self.fonts["small"])
+            team_x = code_x - team_w - 3
+
+            # Race name on left
+            race_max_w = max(10, team_x - 6)
+            race_trunc = self._truncate(draw, short, self.fonts["small"], race_max_w)
+            draw.text((4, cy), race_trunc, font=self.fonts["small"], fill=(140, 140, 140))
+
+            # Team name between race and code (if it fits)
+            race_right = 4 + self._tw(draw, race_trunc, self.fonts["small"]) + 2
+            if team_x > race_right:
+                draw.text((team_x, cy), team_abbr, font=self.fonts["small"], fill=team_dim)
+
+            # Row separator
+            if i < n - 1 and row_y + row_h < self.display_height - 1:
+                draw.line([(2, row_y + row_h - 1),
+                           (self.display_width - 2, row_y + row_h - 1)],
+                          fill=(25, 25, 25))
+
+        return img
+
     # ─── Shared Driver Row ─────────────────────────────────────────────
 
     def _render_driver_row(self, entry: Dict, time_key: str = "",

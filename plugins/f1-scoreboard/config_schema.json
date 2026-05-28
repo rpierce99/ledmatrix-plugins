@@ -160,9 +160,15 @@
           "minimum": 3,
           "maximum": 10,
           "description": "Number of point-scoring drivers to show on the points haul bar chart (max 10 drivers score in F1)"
+        },
+        "show_winners_summary": {
+          "type": "boolean",
+          "title": "Show Winners Summary Card",
+          "default": true,
+          "description": "Show a compact summary card listing the winner of each recent race (team accent color, race name, winner code)"
         }
       },
-      "x-propertyOrder": ["enabled", "number_of_races", "top_finishers", "always_show_favorite", "show_position_delta", "show_dnf_status", "show_points_haul", "points_haul_drivers"],
+      "x-propertyOrder": ["enabled", "number_of_races", "top_finishers", "always_show_favorite", "show_position_delta", "show_dnf_status", "show_points_haul", "points_haul_drivers", "show_winners_summary"],
       "additionalProperties": false
     },
     "upcoming": {

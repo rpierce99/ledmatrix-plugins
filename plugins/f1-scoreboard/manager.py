@@ -480,12 +480,16 @@ class F1ScoreboardPlugin(BasePlugin):
             self._scroll_manager.prepare_and_display(
                 "constructor_standings", cards, separator)
 
-        # Recent races (podium card + optional favorite highlight + points haul)
+        # Recent races (winners summary + podium cards + favorite highlight + points haul)
         rr_cfg = self.config.get("recent_races", {})
         show_haul = rr_cfg.get("show_points_haul", True)
         haul_top_n = rr_cfg.get("points_haul_drivers", 5)
+        show_winners = rr_cfg.get("show_winners_summary", True)
         if self._recent_races:
             cards = []
+            # Winners summary at the top (only if showing 2+ races)
+            if show_winners and len(self._recent_races) > 1:
+                cards.append(r.render_recent_winners_card(self._recent_races))
             for race in self._recent_races:
                 cards.append(r.render_race_result(race))
                 # If favorite outside podium: results[3] is the appended favorite
