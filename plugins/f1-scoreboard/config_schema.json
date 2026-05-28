@@ -514,9 +514,24 @@
           },
           "x-propertyOrder": ["enabled"],
           "additionalProperties": false
+        },
+        "driver_form": {
+          "type": "object",
+          "title": "Driver Form Guide Card",
+          "description": "Compact 2-column grid showing recent race positions per driver as colored boxes (gold=P1, silver=P2, bronze=P3, green=points, red=DNF)",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "title": "Enabled",
+              "default": true,
+              "description": "Show the driver form guide card at the start of the driver standings section"
+            }
+          },
+          "x-propertyOrder": ["enabled"],
+          "additionalProperties": false
         }
       },
-      "x-propertyOrder": ["fastest_lap_dot", "gap_bar", "standings_header", "circuit_map", "championship_leaders", "championship_battle", "constructor_battle"],
+      "x-propertyOrder": ["fastest_lap_dot", "gap_bar", "standings_header", "circuit_map", "championship_leaders", "championship_battle", "constructor_battle", "driver_form"],
       "additionalProperties": false
     },
     "customization": {

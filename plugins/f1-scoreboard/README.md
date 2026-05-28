@@ -14,6 +14,7 @@ Data is sourced from public ESPN F1 endpoints, Jolpica/Ergast, and OpenF1.
 - **Championship leaders card** — split view of the current driver and constructor leaders with team colors and win counts
 - **Driver championship battle card** — P1 vs P2 driver split card with gap in points, races remaining, and ALIVE / NEAR / WON closability status and progress bar
 - **Constructor championship battle card** — P1 vs P2 constructor split card with team logos, points gap, races remaining, and closability bar
+- **Driver form guide card** — compact 2-column grid showing the last N race positions per driver as colored boxes (gold P1, silver P2, bronze P3, green points-finish, red DNF)
 - **Driver standings** with championship points gap bars and team-color accents
 - **Constructor standings** with team logos, gap bars, and per-driver point split (`NOR 189 | PIA 145`)
 - **Favorite driver spotlight** — full card for your chosen driver: position, points, gap to leader, team color banner
@@ -120,6 +121,7 @@ Fine-tune which visual elements appear and how they look:
 | `visual.fastest_lap_dot.enabled` | `true` | Show a colored dot on the fastest-lap driver in race results |
 | `visual.fastest_lap_dot.color` | `[180, 0, 255]` | RGB color of the fastest-lap dot (default: purple) |
 | `visual.circuit_map.enabled` | `true` | Show the circuit layout art on the upcoming race card |
+| `visual.driver_form.enabled` | `true` | Show the driver form guide (recent race position boxes) before driver standings |
 
 **Example — change fastest lap dot to magenta and disable circuit maps:**
 

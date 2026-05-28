@@ -102,6 +102,9 @@ class F1Renderer:
         ctb = vis.get("constructor_battle", {})
         self.show_constructor_battle = ctb.get("enabled", True)
 
+        df = vis.get("driver_form", {})
+        self.show_driver_form = df.get("enabled", True)
+
         rr = self.config.get("recent_races", {})
         self.show_position_delta = rr.get("show_position_delta", True)
         self.show_dnf_status = rr.get("show_dnf_status", True)
@@ -1491,6 +1494,106 @@ class F1Renderer:
 
         if is_live and live_session:
             self._draw_live_badge(draw, live_session)
+
+        return img
+
+    # ─── Driver Form Guide Card ───────────────────────────────────────
+
+    def render_driver_form_card(
+            self, drivers: List[Dict], recent_races: List[Dict]) -> Image.Image:
+        """
+        2-column grid showing recent race positions for top drivers.
+        Each position shown as a small colored box: gold(P1), silver(P2),
+        bronze(P3), green(P4-10), gray(P11+), red(DNF).
+        Races shown left=oldest, right=most recent.
+        """
+        img = Image.new("RGBA", (self.display_width, self.display_height), (0, 0, 0, 255))
+        draw = ImageDraw.Draw(img)
+
+        # Build position history per driver code from all race results
+        pos_history: Dict[str, List] = {}
+        for race in recent_races:
+            all_results = race.get("all_results", race.get("results", []))
+            for r in all_results:
+                code = r.get("code", "")
+                if not code:
+                    continue
+                pos = r.get("position", 0)
+                status = r.get("status", "")
+                is_dnf = (status and status not in ("Finished", "")
+                          and not status.startswith("+"))
+                pos_val: Any = "DNF" if is_dnf else (int(pos) if pos else 20)
+                pos_history.setdefault(code, []).append(pos_val)
+
+        n_races = len(recent_races)
+
+        # Header
+        header_h = self._th(draw, "A", self.fonts["detail"]) + 1
+        draw.rectangle([0, 0, self.display_width - 1, header_h + 1], fill=(15, 15, 20))
+        title = f"FORM L{n_races}"
+        title_w = self._tw(draw, title, self.fonts["detail"])
+        draw.text(((self.display_width - title_w) // 2, 1),
+                  title, font=self.fonts["detail"], fill=(100, 100, 100))
+
+        content_y = header_h + 2
+        content_h = self.display_height - content_y - 1
+
+        n_rows = 4
+        n_cols = 2
+        row_h = max(4, content_h // n_rows)
+        col_w = self.display_width // n_cols
+
+        # Size of each position indicator box
+        box_sz = max(4, row_h - 2)
+        box_gap = 1
+        code_field = self._tw(draw, "NOR", self.fonts["small"]) + 2
+
+        display_drivers = drivers[: n_cols * n_rows]
+
+        for i, driver in enumerate(display_drivers):
+            col = i % n_cols
+            row = i // n_cols
+            x0 = col * col_w
+            row_y = content_y + row * row_h
+
+            code = driver.get("code", "")
+            cid = driver.get("constructor_id", "")
+            tc_bright = _team_color_bright(cid, min_max=110)
+
+            text_h = self._th(draw, "A", self.fonts["small"])
+            cy = row_y + max(0, (row_h - text_h) // 2)
+            draw.text((x0 + 2, cy), code, font=self.fonts["small"], fill=tc_bright)
+
+            history = pos_history.get(code, [])
+            box_x = x0 + 2 + code_field
+
+            for j, pos_val in enumerate(history[:n_races]):
+                bx = box_x + j * (box_sz + box_gap)
+                by = row_y + max(0, (row_h - box_sz) // 2)
+
+                if pos_val == "DNF":
+                    bg, fg, label = (70, 15, 15), (200, 70, 70), "R"
+                elif pos_val == 1:
+                    bg, fg, label = (55, 42, 0), (255, 210, 0), "1"
+                elif pos_val == 2:
+                    bg, fg, label = (38, 38, 38), (195, 195, 195), "2"
+                elif pos_val == 3:
+                    bg, fg, label = (45, 23, 0), (195, 110, 45), "3"
+                elif pos_val <= 10:
+                    bg, fg, label = (0, 38, 18), (0, 170, 80), str(pos_val)
+                else:
+                    bg, fg, label = (22, 22, 22), (90, 90, 90), str(pos_val)
+
+                draw.rectangle([bx, by, bx + box_sz - 1, by + box_sz - 1], fill=bg)
+                lbl_w = self._tw(draw, label, self.fonts["small"])
+                lbl_h = self._th(draw, label, self.fonts["small"])
+                lx = bx + max(0, (box_sz - lbl_w) // 2)
+                ly = by + max(0, (box_sz - lbl_h) // 2)
+                draw.text((lx, ly), label, font=self.fonts["small"], fill=fg)
+
+            # Column divider
+            if col == 0 and i + 1 < len(display_drivers):
+                draw.line([(col_w, row_y), (col_w, row_y + row_h - 1)], fill=(30, 30, 30))
 
         return img
 

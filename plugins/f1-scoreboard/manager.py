@@ -449,6 +449,11 @@ class F1ScoreboardPlugin(BasePlugin):
                 cards.append(r.render_standings_header(
                     "DRIVER STANDINGS", round_num=round_num,
                     total_rounds=total_rounds, season=season))
+            # Driver form guide card (recent race positions at a glance)
+            if r.show_driver_form and self._recent_races:
+                form_card = r.render_driver_form_card(
+                    self._driver_standings[:8], self._recent_races)
+                cards.append(form_card)
             cards += [r.render_driver_standing(
                         e, is_live=is_live, live_session=live_sess)
                       for e in self._driver_standings]
