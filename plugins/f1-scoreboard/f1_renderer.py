@@ -11,7 +11,7 @@ import math
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import pytz
 from PIL import Image, ImageDraw, ImageFont
@@ -156,13 +156,95 @@ class F1Renderer:
             [x, 0, x + bar_width - 1, self.display_height - 1],
             fill=color)
 
+    # ─── Championship Gap Bar ─────────────────────────────────────────
+
+    def _draw_gap_bar(self, draw: ImageDraw.ImageDraw,
+                      entry: Dict, y_bottom: int,
+                      constructor_id: str,
+                      x_start: int = None, x_end: int = None):
+        """
+        Draw a thin proportional points-gap bar at the bottom of a card.
+
+        The bar spans from x_start to x_end. Its filled width represents
+        the driver's points as a fraction of the championship leader's points.
+        """
+        leader_pts = entry.get("leader_points", 0)
+        pts = entry.get("points", 0)
+        if leader_pts <= 0:
+            return
+
+        bar_h = max(1, self.display_height // 16)
+        x_s = x_start if x_start is not None else self.accent_bar_width + 2
+        x_e = x_end if x_end is not None else self.display_width - 2
+        bar_w = x_e - x_s
+        if bar_w <= 0:
+            return
+
+        y_top = y_bottom - bar_h
+
+        # Background track (dim)
+        draw.rectangle([x_s, y_top, x_e, y_bottom - 1],
+                       fill=(30, 30, 30))
+
+        # Filled portion
+        fill_w = int(bar_w * min(1.0, pts / leader_pts))
+        if fill_w > 0:
+            color = get_team_color(constructor_id)
+            # Slightly dimmed version of team color
+            color_dim = tuple(max(0, int(c * 0.75)) for c in color)
+            draw.rectangle([x_s, y_top, x_s + fill_w - 1, y_bottom - 1],
+                           fill=color_dim)
+
+        # Gap label (right-aligned, tiny)
+        gap = entry.get("gap_to_leader", 0)
+        if gap > 0:
+            gap_text = f"-{int(gap)}"
+            gap_w = self._get_text_width(draw, gap_text, self.fonts["small"])
+            gap_x = x_e - gap_w
+            if gap_x > x_s + fill_w + 2:
+                draw.text((gap_x, y_top - 1), gap_text,
+                          font=self.fonts["small"], fill=(140, 140, 140))
+
+    # ─── Live Session Badge ───────────────────────────────────────────
+
+    def _draw_live_badge(self, draw: ImageDraw.ImageDraw,
+                         session_type: str = "RACE"):
+        """
+        Draw a pulsing LIVE badge in the top-right corner.
+
+        Args:
+            session_type: Session abbreviation (Race, Qual, FP1, etc.)
+        """
+        pulse = int(200 + 55 * math.sin(time.time() * 4))
+        pulse = max(160, min(255, pulse))
+
+        label_map = {
+            "Race": "RACE", "Qual": "QUALI",
+            "FP1": "FP1", "FP2": "FP2", "FP3": "FP3",
+            "SS": "S.QUALI", "SR": "SPRINT",
+        }
+        label = "LIVE " + label_map.get(session_type, session_type)
+
+        badge_w = self._get_text_width(draw, label, self.fonts["small"]) + 4
+        badge_h = self._get_text_height(draw, label, self.fonts["small"]) + 2
+        bx = self.display_width - badge_w - 1
+        by = 1
+
+        draw.rectangle([bx, by, bx + badge_w, by + badge_h],
+                       fill=(pulse, 0, 0))
+        draw.text((bx + 2, by + 1), label,
+                  font=self.fonts["small"], fill=(255, 255, 255))
+
     # ─── Driver Standings Card ─────────────────────────────────────────
 
-    def render_driver_standing(self, entry: Dict) -> Image.Image:
+    def render_driver_standing(self, entry: Dict,
+                               is_live: bool = False,
+                               live_session: str = "") -> Image.Image:
         """
         Render a single driver standings card.
 
         Layout: [accent bar] [pos] [team logo] [code] [points] [W/P stats]
+                [gap bar at bottom]
         """
         img = Image.new("RGBA",
                         (self.display_width, self.display_height),
@@ -172,8 +254,23 @@ class F1Renderer:
         constructor_id = entry.get("constructor_id", "")
         is_favorite = entry.get("is_favorite", False)
 
+        # Subtle team color tint on background for favorites
+        if is_favorite:
+            team_color = get_team_color(constructor_id)
+            tint = tuple(max(0, int(c * 0.12)) for c in team_color)
+            draw.rectangle([0, 0, self.display_width - 1,
+                            self.display_height - 1], fill=tint)
+
         # Accent bar
         self._draw_accent_bar(draw, constructor_id, is_favorite=is_favorite)
+
+        # Gap bar at bottom (use bottom 2px row)
+        gap_bar_reserve = max(2, self.display_height // 16)
+        content_height = self.display_height - gap_bar_reserve
+        self._draw_gap_bar(draw, entry, self.display_height,
+                           constructor_id,
+                           x_start=self.accent_bar_width + 2,
+                           x_end=self.display_width - 2)
 
         x_offset = self.accent_bar_width + 2
 
@@ -187,22 +284,27 @@ class F1Renderer:
 
         # Team logo
         logo = self.logo_loader.get_team_logo(
-            constructor_id, self.logo_max_height, self.logo_max_width)
+            constructor_id,
+            max(8, int(content_height * 0.8)),
+            max(8, int(content_height * 0.8)))
         if logo:
-            logo_y = (self.display_height - logo.height) // 2
+            logo_y = (content_height - logo.height) // 2
             img.paste(logo, (x_offset, logo_y), logo)
             x_offset += logo.width + 3
 
         # Driver code (large)
         code = entry.get("code", "???")
+        code_color = (255, 215, 0) if is_favorite else (255, 255, 255)
         self._draw_text_outlined(draw, (x_offset, 2), code,
                                 self.fonts["position"],
-                                fill=(255, 255, 255))
+                                fill=code_color)
 
         # Full name (small, below code if space)
-        name_y = 2 + self._get_text_height(draw, code, self.fonts["position"]) + 2
-        if name_y + 6 < self.display_height:
-            full_name = f"{entry.get('first_name', '')} {entry.get('last_name', '')}"
+        code_h = self._get_text_height(draw, code, self.fonts["position"])
+        name_y = 2 + code_h + 2
+        if name_y + 6 < content_height:
+            full_name = (f"{entry.get('first_name', '')} "
+                        f"{entry.get('last_name', '')}")
             self._draw_text_outlined(draw, (x_offset, name_y), full_name,
                                     self.fonts["small"],
                                     fill=(180, 180, 180))
@@ -224,20 +326,27 @@ class F1Renderer:
         stats_x = self.display_width - stats_width - 2
         stats_y = 2 + self._get_text_height(draw, points_text,
                                             self.fonts["detail"]) + 2
-        if stats_y + 6 < self.display_height:
+        if stats_y + 6 < content_height:
             self._draw_text_outlined(draw, (stats_x, stats_y), stats_text,
                                     self.fonts["small"],
                                     fill=(200, 200, 200))
+
+        # Live badge
+        if is_live and live_session:
+            self._draw_live_badge(draw, live_session)
 
         return img
 
     # ─── Constructor Standings Card ────────────────────────────────────
 
-    def render_constructor_standing(self, entry: Dict) -> Image.Image:
+    def render_constructor_standing(self, entry: Dict,
+                                    is_live: bool = False,
+                                    live_session: str = "") -> Image.Image:
         """
         Render a single constructor standings card.
 
         Layout: [accent bar] [pos] [team logo] [team name] [points] [wins]
+                [gap bar at bottom]
         """
         img = Image.new("RGBA",
                         (self.display_width, self.display_height),
@@ -247,8 +356,23 @@ class F1Renderer:
         constructor_id = entry.get("constructor_id", "")
         is_favorite = entry.get("is_favorite", False)
 
+        # Subtle team color tint on background for favorites
+        if is_favorite:
+            team_color = get_team_color(constructor_id)
+            tint = tuple(max(0, int(c * 0.12)) for c in team_color)
+            draw.rectangle([0, 0, self.display_width - 1,
+                            self.display_height - 1], fill=tint)
+
         # Accent bar
         self._draw_accent_bar(draw, constructor_id, is_favorite=is_favorite)
+
+        # Gap bar at bottom
+        gap_bar_reserve = max(2, self.display_height // 16)
+        content_height = self.display_height - gap_bar_reserve
+        self._draw_gap_bar(draw, entry, self.display_height,
+                           constructor_id,
+                           x_start=self.accent_bar_width + 2,
+                           x_end=self.display_width - 2)
 
         x_offset = self.accent_bar_width + 2
 
@@ -262,15 +386,20 @@ class F1Renderer:
 
         # Team logo
         logo = self.logo_loader.get_team_logo(
-            constructor_id, self.logo_max_height, self.logo_max_width)
+            constructor_id,
+            max(8, int(content_height * 0.8)),
+            max(8, int(content_height * 0.8)))
         if logo:
-            logo_y = (self.display_height - logo.height) // 2
+            logo_y = (content_height - logo.height) // 2
             img.paste(logo, (x_offset, logo_y), logo)
             x_offset += logo.width + 3
 
-        # Team name
+        # Team name (in team color, truncated if needed)
         team_name = entry.get("constructor", "")
-        self._draw_text_outlined(draw, (x_offset, 2), team_name,
+        name_max_w = self.display_width - x_offset - 40
+        team_name_disp = self._truncate_text(
+            draw, team_name, self.fonts["position"], name_max_w)
+        self._draw_text_outlined(draw, (x_offset, 2), team_name_disp,
                                 self.fonts["position"],
                                 fill=get_team_color(constructor_id))
 
@@ -290,10 +419,14 @@ class F1Renderer:
         wins_x = self.display_width - wins_width - 2
         wins_y = 2 + self._get_text_height(draw, points_text,
                                            self.fonts["detail"]) + 2
-        if wins_y + 6 < self.display_height:
+        if wins_y + 6 < content_height:
             self._draw_text_outlined(draw, (wins_x, wins_y), wins_text,
                                     self.fonts["small"],
                                     fill=(200, 200, 200))
+
+        # Live badge
+        if is_live and live_session:
+            self._draw_live_badge(draw, live_session)
 
         return img
 
@@ -303,7 +436,9 @@ class F1Renderer:
         """
         Render a race result card with podium visualization.
 
-        Layout: [GP name + winner time] [P1 P2 P3 with team colors + medals]
+        Layout: [GP name  date]
+                [P1 code  P2 code  P3 code]
+                [team-color bar | gap | team logo]
         """
         img = Image.new("RGBA",
                         (self.display_width, self.display_height),
@@ -312,31 +447,45 @@ class F1Renderer:
 
         results = race.get("results", [])
         race_name = race.get("race_name", "Grand Prix")
-
-        # Shorten race name to fit
         short_name = race_name.replace("Grand Prix", "GP")
 
-        # Header: GP name
-        self._draw_text_outlined(draw, (2, 1), short_name,
+        # Race date (right of header, in muted grey)
+        race_date_str = ""
+        if race.get("date"):
+            try:
+                dt = self._to_local_dt(
+                    race["date"] + "T12:00:00Z"
+                    if "T" not in race["date"] else race["date"])
+                race_date_str = dt.strftime("%b %d").upper()
+            except (ValueError, TypeError):
+                pass
+
+        header_y = 1
+        # GP name
+        self._draw_text_outlined(draw, (2, header_y), short_name,
                                 self.fonts["detail"],
                                 fill=F1_RED)
 
-        # Winner time (right-aligned on header line)
-        if results:
-            winner_time = results[0].get("time", "")
-            if winner_time:
-                tw = self._get_text_width(draw, winner_time, self.fonts["small"])
-                self._draw_text_outlined(
-                    draw, (self.display_width - tw - 2, 1),
-                    winner_time, self.fonts["small"],
-                    fill=(200, 200, 200))
+        # Date right-aligned
+        if race_date_str:
+            dw = self._get_text_width(draw, race_date_str, self.fonts["small"])
+            self._draw_text_outlined(
+                draw, (self.display_width - dw - 2, header_y),
+                race_date_str, self.fonts["small"],
+                fill=(130, 130, 130))
+
+        # Winner time below the header if space allows
+        header_h = self._get_text_height(draw, short_name, self.fonts["detail"])
+        winner_time = results[0].get("time", "") if results else ""
+        if winner_time and self.display_height >= 48:
+            self._draw_text_outlined(
+                draw, (2, header_y + header_h + 1),
+                winner_time, self.fonts["small"],
+                fill=(160, 160, 160))
 
         # Podium section - top 3 finishers
-        header_height = self._get_text_height(draw, short_name,
-                                              self.fonts["detail"]) + 4
-        podium_y = header_height
+        podium_y = header_y + header_h + 3
 
-        # Calculate space per podium position
         top_n = min(len(results), 3)
         if top_n == 0:
             return img
@@ -366,25 +515,50 @@ class F1Renderer:
                                     code, self.fonts["detail"],
                                     fill=(255, 255, 255))
 
-            # Team color dot
-            dot_y = code_y + self._get_text_height(
-                draw, code, self.fonts["detail"]) + 1
-            if dot_y + 3 < self.display_height:
+            # Team color accent line below driver code
+            code_h = self._get_text_height(draw, code, self.fonts["detail"])
+            bar_y = code_y + code_h + 1
+            bar_max_x = x_base + section_width - 2
+
+            # Gap to winner for P2/P3 (or winner's total time for P1)
+            gap_info = ""
+            if i == 0:
+                # P1: show winner time if it fits
+                winner_time = r.get("time", "")
+                if winner_time and self.display_height < 48:
+                    gap_info = winner_time
+            else:
+                gap_info = r.get("time", "")  # already a gap string from API
+
+            if gap_info and bar_y + 6 < self.display_height:
+                gap_color = (200, 200, 200) if i == 0 else (255, 180, 0)
+                gap_text = self._truncate_text(
+                    draw, gap_info, self.fonts["small"],
+                    section_width - 6)
+                self._draw_text_outlined(
+                    draw, (x_base + 2, bar_y), gap_text,
+                    self.fonts["small"], fill=gap_color)
+                bar_y += self._get_text_height(
+                    draw, gap_text, self.fonts["small"]) + 1
+
+            # Team color line at bottom of section
+            if bar_y + 2 < self.display_height:
                 draw.rectangle(
-                    [x_base + 2, dot_y,
-                     x_base + 2 + self.accent_bar_width * 3, dot_y + 2],
+                    [x_base + 1, bar_y,
+                     min(bar_max_x, x_base + self.accent_bar_width * 4),
+                     bar_y + 1],
                     fill=team_color)
 
-            # Mini team logo
+            # Mini team logo (right-aligned in section)
             mini_logo = self.logo_loader.get_team_logo(
                 constructor_id,
                 max_height=int(self.display_height * 0.3),
                 max_width=int(section_width * 0.4))
             if mini_logo:
                 logo_x = x_base + section_width - mini_logo.width - 1
-                logo_y = podium_y
-                if logo_y + mini_logo.height < self.display_height:
-                    img.paste(mini_logo, (logo_x, logo_y), mini_logo)
+                logo_y_m = podium_y
+                if logo_y_m + mini_logo.height < self.display_height:
+                    img.paste(mini_logo, (logo_x, logo_y_m), mini_logo)
 
         return img
 
@@ -821,6 +995,231 @@ class F1Renderer:
                 self._draw_text_outlined(draw, (2, time_y), time_str,
                                         self.fonts["small"],
                                         fill=(120, 120, 120))
+
+        return img
+
+    # ─── Favorite Spotlight Card ──────────────────────────────────────
+
+    def render_favorite_driver_spotlight(
+            self, driver_entry: Dict,
+            is_live: bool = False,
+            live_session: str = "") -> Image.Image:
+        """
+        Render a full-width spotlight card for the followed driver.
+
+        Shown first in Vegas scroll sequence. Features:
+          - Team color dominant background tint
+          - Large driver code centered
+          - Championship position, points, gap to leader
+          - Wins, poles, team name
+          - LIVE badge if session is active
+        """
+        img = Image.new("RGBA",
+                        (self.display_width, self.display_height),
+                        (0, 0, 0, 255))
+        draw = ImageDraw.Draw(img)
+
+        constructor_id = driver_entry.get("constructor_id", "")
+        team_color = get_team_color(constructor_id)
+
+        # Rich background: gradient-like dual-zone fill
+        # Left half: team color at ~20% opacity
+        left_w = self.display_width // 2
+        tint_strong = tuple(max(0, int(c * 0.20)) for c in team_color)
+        tint_fade = tuple(max(0, int(c * 0.07)) for c in team_color)
+        draw.rectangle([0, 0, left_w, self.display_height - 1],
+                       fill=tint_strong)
+        draw.rectangle([left_w, 0, self.display_width - 1,
+                        self.display_height - 1], fill=tint_fade)
+
+        # Accent bar (wider for spotlight)
+        accent_w = max(3, self.accent_bar_width + 1)
+        draw.rectangle([0, 0, accent_w - 1, self.display_height - 1],
+                       fill=team_color)
+
+        x_offset = accent_w + 3
+
+        # Team logo (larger)
+        logo_size = int(self.display_height * 0.85)
+        logo = self.logo_loader.get_team_logo(
+            constructor_id, logo_size, logo_size)
+        if logo:
+            logo_y = (self.display_height - logo.height) // 2
+            img.paste(logo, (x_offset, logo_y), logo)
+            x_offset += logo.width + 4
+
+        # Driver code — large, in team color with white outline
+        code = driver_entry.get("code", "???")
+        self._draw_text_outlined(draw, (x_offset, 1), code,
+                                self.fonts["header"],
+                                fill=team_color,
+                                outline=(0, 0, 0))
+
+        code_h = self._get_text_height(draw, code, self.fonts["header"])
+        code_w = self._get_text_width(draw, code, self.fonts["header"])
+
+        # Full name below code
+        full_name = (f"{driver_entry.get('first_name', '')} "
+                    f"{driver_entry.get('last_name', '')}")
+        name_y = 1 + code_h + 1
+        if name_y + 5 < self.display_height:
+            self._draw_text_outlined(draw, (x_offset, name_y), full_name,
+                                    self.fonts["small"],
+                                    fill=(220, 220, 220))
+
+        # Right column: championship data
+        right_x = x_offset + code_w + 6
+        if right_x < self.display_width - 30:
+            pos = driver_entry.get("position", "?")
+            pts = int(driver_entry.get("points", 0))
+            gap = driver_entry.get("gap_to_leader", 0)
+            wins = driver_entry.get("wins", 0)
+            poles = driver_entry.get("poles", 0)
+
+            # Championship position
+            pos_text = f"P{pos}"
+            self._draw_text_outlined(draw, (right_x, 1), pos_text,
+                                    self.fonts["position"],
+                                    fill=(255, 215, 0))
+            pos_h = self._get_text_height(draw, pos_text,
+                                         self.fonts["position"])
+
+            # Points
+            pts_text = f"{pts}pts"
+            pts_y = 1 + pos_h + 1
+            if pts_y + 5 < self.display_height:
+                self._draw_text_outlined(draw, (right_x, pts_y), pts_text,
+                                        self.fonts["detail"],
+                                        fill=(255, 255, 100))
+
+            # Gap to leader (if not P1)
+            if gap > 0:
+                gap_text = f"-{int(gap)}"
+                gap_y = pts_y + self._get_text_height(
+                    draw, pts_text, self.fonts["detail"]) + 1
+                if gap_y + 5 < self.display_height:
+                    self._draw_text_outlined(draw, (right_x, gap_y), gap_text,
+                                            self.fonts["small"],
+                                            fill=(255, 120, 120))
+
+            # Wins / Poles in bottom-right
+            wp_text = f"{wins}W {poles}P"
+            wp_w = self._get_text_width(draw, wp_text, self.fonts["small"])
+            wp_x = self.display_width - wp_w - 2
+            wp_y = self.display_height - self._get_text_height(
+                draw, wp_text, self.fonts["small"]) - 2
+            if wp_y > 10:
+                self._draw_text_outlined(draw, (wp_x, wp_y), wp_text,
+                                        self.fonts["small"],
+                                        fill=(180, 180, 180))
+
+        # "MY DRIVER" label in top-right corner
+        label = "MY DRIVER"
+        lw = self._get_text_width(draw, label, self.fonts["small"])
+        draw.text((self.display_width - lw - 2, 1), label,
+                  font=self.fonts["small"], fill=team_color)
+
+        if is_live and live_session:
+            self._draw_live_badge(draw, live_session)
+
+        return img
+
+    def render_favorite_team_spotlight(
+            self, team_entry: Dict,
+            driver_entries: List[Dict] = None,
+            is_live: bool = False,
+            live_session: str = "") -> Image.Image:
+        """
+        Render a full-width spotlight card for the followed constructor.
+
+        Shows team info prominently with both drivers' current standings.
+        """
+        img = Image.new("RGBA",
+                        (self.display_width, self.display_height),
+                        (0, 0, 0, 255))
+        draw = ImageDraw.Draw(img)
+
+        constructor_id = team_entry.get("constructor_id", "")
+        team_color = get_team_color(constructor_id)
+
+        # Rich background tint
+        tint = tuple(max(0, int(c * 0.15)) for c in team_color)
+        draw.rectangle([0, 0, self.display_width - 1,
+                        self.display_height - 1], fill=tint)
+
+        # Accent bar
+        accent_w = max(3, self.accent_bar_width + 1)
+        draw.rectangle([0, 0, accent_w - 1, self.display_height - 1],
+                       fill=team_color)
+
+        x_offset = accent_w + 3
+
+        # Team logo (large)
+        logo_size = int(self.display_height * 0.85)
+        logo = self.logo_loader.get_team_logo(
+            constructor_id, logo_size, logo_size)
+        if logo:
+            logo_y = (self.display_height - logo.height) // 2
+            img.paste(logo, (x_offset, logo_y), logo)
+            x_offset += logo.width + 4
+
+        # Team name
+        team_name = team_entry.get("constructor", "")
+        self._draw_text_outlined(draw, (x_offset, 1), team_name,
+                                self.fonts["header"],
+                                fill=team_color,
+                                outline=(0, 0, 0))
+
+        name_h = self._get_text_height(draw, team_name, self.fonts["header"])
+
+        # Championship position + points
+        pos = team_entry.get("position", "?")
+        pts = int(team_entry.get("points", 0))
+        gap = team_entry.get("gap_to_leader", 0)
+        wins = team_entry.get("wins", 0)
+
+        stats_y = 1 + name_h + 1
+        if stats_y + 5 < self.display_height:
+            pos_text = f"P{pos}"
+            self._draw_text_outlined(draw, (x_offset, stats_y), pos_text,
+                                    self.fonts["position"],
+                                    fill=(255, 215, 0))
+            pos_w = self._get_text_width(draw, pos_text,
+                                         self.fonts["position"]) + 4
+            pts_text = f"{pts}pts"
+            self._draw_text_outlined(draw, (x_offset + pos_w, stats_y),
+                                    pts_text, self.fonts["detail"],
+                                    fill=(255, 255, 100))
+
+        # Gap to leader
+        if gap > 0:
+            gap_text = f"-{int(gap)} to P1"
+            gap_y = (stats_y + self._get_text_height(
+                draw, "P1", self.fonts["position"]) + 1)
+            if gap_y + 5 < self.display_height:
+                self._draw_text_outlined(draw, (x_offset, gap_y), gap_text,
+                                        self.fonts["small"],
+                                        fill=(255, 120, 120))
+
+        # Wins (bottom right)
+        wins_text = f"{wins}W"
+        ww = self._get_text_width(draw, wins_text, self.fonts["detail"])
+        wx = self.display_width - ww - 2
+        wy = self.display_height - self._get_text_height(
+            draw, wins_text, self.fonts["detail"]) - 2
+        if wy > 10:
+            self._draw_text_outlined(draw, (wx, wy), wins_text,
+                                    self.fonts["detail"],
+                                    fill=(255, 215, 0))
+
+        # "MY TEAM" label
+        label = "MY TEAM"
+        lw = self._get_text_width(draw, label, self.fonts["small"])
+        draw.text((self.display_width - lw - 2, 1), label,
+                  font=self.fonts["small"], fill=team_color)
+
+        if is_live and live_session:
+            self._draw_live_badge(draw, live_session)
 
         return img
 
