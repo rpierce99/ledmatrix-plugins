@@ -652,6 +652,7 @@ class F1DataSource:
                     "status": r.get("status", ""),
                     "time": time_data.get("time", ""),
                     "time_millis": time_data.get("millis", ""),
+                    "fastest_lap": fastest.get("rank", "") == "1",
                     "fastest_lap_rank": fastest.get("rank", ""),
                     "fastest_lap_time": fastest_time.get("time", ""),
                     "fastest_lap_number": fastest.get("lap", ""),

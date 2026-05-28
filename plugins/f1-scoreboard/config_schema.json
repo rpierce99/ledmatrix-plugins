@@ -128,9 +128,21 @@
           "title": "Always Show Favorite",
           "default": true,
           "description": "Always include favorite driver in results even if outside top N finishers"
+        },
+        "show_position_delta": {
+          "type": "boolean",
+          "title": "Show Position Delta",
+          "default": true,
+          "description": "Show positions gained (+N green) or lost (-N red) compared to grid starting position"
+        },
+        "show_dnf_status": {
+          "type": "boolean",
+          "title": "Show DNF/Retirement",
+          "default": true,
+          "description": "Show RET for retired drivers or +NL for lapped drivers instead of gap time"
         }
       },
-      "x-propertyOrder": ["enabled", "number_of_races", "top_finishers", "always_show_favorite"],
+      "x-propertyOrder": ["enabled", "number_of_races", "top_finishers", "always_show_favorite", "show_position_delta", "show_dnf_status"],
       "additionalProperties": false
     },
     "upcoming": {

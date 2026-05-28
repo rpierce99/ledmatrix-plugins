@@ -95,6 +95,10 @@ class F1Renderer:
         cl = vis.get("championship_leaders", {})
         self.show_championship_leaders = cl.get("enabled", True)
 
+        rr = self.config.get("recent_races", {})
+        self.show_position_delta = rr.get("show_position_delta", True)
+        self.show_dnf_status = rr.get("show_dnf_status", True)
+
         self.fonts = self._load_fonts()
 
     def _load_fonts(self) -> Dict[str, Any]:
@@ -515,6 +519,27 @@ class F1Renderer:
             if mini_logo and logo_y_pos + mini_logo.height <= self.display_height:
                 img.paste(mini_logo, (logo_x, logo_y_pos), mini_logo)
 
+            # Position delta (+N gained / -N lost) — right of pos label, before logo
+            grid_pos = r.get("grid", 0)
+            if self.show_position_delta and grid_pos > 0:
+                delta = grid_pos - pos
+                if delta > 0:
+                    delta_str = f"+{delta}"
+                    delta_color = (0, 210, 80)
+                elif delta < 0:
+                    delta_str = str(delta)
+                    delta_color = (220, 50, 50)
+                else:
+                    delta_str = ""
+                if delta_str:
+                    d_w = self._tw(draw, delta_str, self.fonts["small"])
+                    available_right = (logo_x - 3) if mini_logo else (x1 - 2)
+                    label_right = x0 + 2 + label_w + 2
+                    d_x = available_right - d_w
+                    if d_x > label_right:
+                        draw.text((d_x, py2), delta_str,
+                                  font=self.fonts["small"], fill=delta_color)
+
             # Driver code on second row
             code_y = py2 + self._th(draw, pos_label, self.fonts["small"]) + 1
             code_max_w = section_w - 4 - (mini_logo.width + 2 if mini_logo else 0)
@@ -522,19 +547,33 @@ class F1Renderer:
             self._draw_text_outlined(draw, (x0 + 2, code_y), code_trunc,
                                      self.fonts["detail"], fill=(240, 240, 240))
 
-            # Gap or time on third row
-            gap_str = ""
-            if i == 0:
-                gap_str = r.get("time", "")
-                gap_color = (160, 160, 160)
-            else:
-                gap_str = r.get("time", r.get("gap", ""))
-                gap_color = (255, 190, 50)
-
+            # Gap/time or retirement status on third row
+            status = r.get("status", "")
             gap_y = code_y + self._th(draw, "A", self.fonts["detail"]) + 1
-            if gap_str and gap_y + 5 < self.display_height:
-                gap_trunc = self._truncate(draw, gap_str, self.fonts["small"], section_w - 4)
-                draw.text((x0 + 2, gap_y), gap_trunc, font=self.fonts["small"], fill=gap_color)
+            if gap_y + 5 < self.display_height:
+                if self.show_dnf_status and status and status not in ("Finished", ""):
+                    # Retired / lapped
+                    if status.startswith("+") and "Lap" in status:
+                        parts = status.split()
+                        gap_str = f"+{parts[0].lstrip('+')}L"
+                        gap_color = (180, 120, 40)
+                    else:
+                        gap_str = "RET"
+                        gap_color = (180, 60, 60)
+                    gap_trunc = self._truncate(draw, gap_str, self.fonts["small"], section_w - 4)
+                    draw.text((x0 + 2, gap_y), gap_trunc,
+                              font=self.fonts["small"], fill=gap_color)
+                else:
+                    if i == 0:
+                        gap_str = r.get("time", "")
+                        gap_color = (160, 160, 160)
+                    else:
+                        gap_str = r.get("time", r.get("gap", ""))
+                        gap_color = (255, 190, 50)
+                    if gap_str:
+                        gap_trunc = self._truncate(draw, gap_str, self.fonts["small"], section_w - 4)
+                        draw.text((x0 + 2, gap_y), gap_trunc,
+                                  font=self.fonts["small"], fill=gap_color)
 
             # Fastest lap: 3×3 dot in top-right corner of section
             if self.show_fl_dot and r.get("fastest_lap", False):
