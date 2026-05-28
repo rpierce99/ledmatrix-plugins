@@ -2304,13 +2304,7 @@ class F1Renderer:
                     return None
             return 0.0  # winner
 
-        winner_entry = entries[0]
-        winner_entry_gap = 0.0
-
-        gaps = []
-        for e in entries:
-            g = parse_gap(e)
-            gaps.append(g)
+        gaps = [parse_gap(e) for e in entries]
 
         # Find max finite gap for scaling
         finite_gaps = [g for g in gaps if g is not None]
@@ -2346,8 +2340,9 @@ class F1Renderer:
             code = entry.get("code", "")[:3]
             tc = _team_color_bright(cid, min_max=120)
 
-            # Driver code label (left)
-            label = f"{i+1}.{code}" if i > 0 else code
+            # Driver code label (left): actual finishing position
+            pos = entry.get("position", i + 1)
+            label = f"{pos}.{code}"
             draw.text((1, row_y), label, font=self.fonts["small"], fill=tc)
 
             # Bar

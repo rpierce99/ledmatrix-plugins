@@ -81,6 +81,11 @@ class F1ScoreboardPlugin(BasePlugin):
         # Data state
         self._driver_standings: List[Dict] = []
         self._constructor_standings: List[Dict] = []
+        # Pre-filter P1/P2 used for battle cards (unaffected by top_n setting)
+        self._driver_battle_p1: Optional[Dict] = None
+        self._driver_battle_p2: Optional[Dict] = None
+        self._constructor_battle_p1: Optional[Dict] = None
+        self._constructor_battle_p2: Optional[Dict] = None
         self._recent_races: List[Dict] = []
         self._upcoming_race: Optional[Dict] = None
         self._qualifying: Optional[Dict] = None
@@ -109,8 +114,8 @@ class F1ScoreboardPlugin(BasePlugin):
 
         # Preload logos
         self.logo_loader.preload_all_teams(
-            self.renderer.logo_max_height,
-            self.renderer.logo_max_width)
+            self.renderer.logo_max,
+            self.renderer.logo_max)
 
         self.logger.info("F1 Scoreboard initialized with %d modes: %s",
                         len(self.modes), ", ".join(self.modes))
@@ -230,6 +235,12 @@ class F1ScoreboardPlugin(BasePlugin):
                 # Annotate with championship gap data
                 standings = self.data_source.get_championship_gaps(standings)
 
+                # Save pre-filter P1/P2 for battle card (not affected by top_n)
+                if len(standings) >= 1:
+                    self._driver_battle_p1 = standings[0]
+                if len(standings) >= 2:
+                    self._driver_battle_p2 = standings[1]
+
                 # Apply favorite filter
                 top_n = self.config.get(
                     "driver_standings", {}).get("top_n", 10)
@@ -248,6 +259,12 @@ class F1ScoreboardPlugin(BasePlugin):
             if standings:
                 # Annotate with championship gap data
                 standings = self.data_source.get_championship_gaps(standings)
+
+                # Save pre-filter P1/P2 for battle card (not affected by top_n)
+                if len(standings) >= 1:
+                    self._constructor_battle_p1 = standings[0]
+                if len(standings) >= 2:
+                    self._constructor_battle_p2 = standings[1]
 
                 top_n = self.config.get(
                     "constructor_standings", {}).get("top_n", 10)
@@ -366,6 +383,36 @@ class F1ScoreboardPlugin(BasePlugin):
         if calendar:
             self._calendar = calendar
 
+    # ─── Gap Trend Helper ──────────────────────────────────────────────
+
+    def _compute_race_gap_trend(self, code1: str, code2: str,
+                                 use_constructor: bool = False) -> int:
+        """
+        Return points delta (code1 - code2) from the most recent race.
+        Positive = code1 extended its lead; negative = code2 is closing.
+        Returns 0 if data is unavailable.
+        """
+        if not self._recent_races:
+            return 0
+        all_res = self._recent_races[0].get("all_results", [])
+        if use_constructor:
+            pts1 = sum(e.get("points", 0) for e in all_res
+                       if e.get("constructor_id", "") == code1)
+            pts2 = sum(e.get("points", 0) for e in all_res
+                       if e.get("constructor_id", "") == code2)
+            if pts1 == 0 and pts2 == 0:
+                return 0
+        else:
+            pts1 = next(
+                (e.get("points", 0) for e in all_res
+                 if e.get("code", "").upper() == code1.upper()), None)
+            pts2 = next(
+                (e.get("points", 0) for e in all_res
+                 if e.get("code", "").upper() == code2.upper()), None)
+            if pts1 is None or pts2 is None:
+                return 0
+        return int(pts1 - pts2)
+
     # ─── Scroll Content Preparation ────────────────────────────────────
 
     def _prepare_scroll_content(self):
@@ -393,24 +440,12 @@ class F1ScoreboardPlugin(BasePlugin):
                     "championship_leaders", [leaders_card], separator)
 
         # Driver championship battle card (P1 vs P2, follows leaders)
-        if r.show_championship_battle and len(self._driver_standings) >= 2:
-            p1 = self._driver_standings[0]
-            p2 = self._driver_standings[1]
-            # Gap trend: points delta from most recent race (positive = leader extended)
-            gap_trend = 0
-            if self._recent_races:
-                last_race = self._recent_races[0]
-                all_res = last_race.get("all_results", [])
-                p1_code = p1.get("code", "").upper()
-                p2_code = p2.get("code", "").upper()
-                p1_race_pts = next(
-                    (e.get("points", 0) for e in all_res
-                     if e.get("code", "").upper() == p1_code), None)
-                p2_race_pts = next(
-                    (e.get("points", 0) for e in all_res
-                     if e.get("code", "").upper() == p2_code), None)
-                if p1_race_pts is not None and p2_race_pts is not None:
-                    gap_trend = int(p1_race_pts - p2_race_pts)
+        # Uses pre-filter standings so top_n config doesn't affect P1/P2 selection
+        if r.show_championship_battle and self._driver_battle_p1 and self._driver_battle_p2:
+            p1 = self._driver_battle_p1
+            p2 = self._driver_battle_p2
+            gap_trend = self._compute_race_gap_trend(
+                p1.get("code", ""), p2.get("code", ""))
             battle_card = r.render_championship_battle_card(
                 p1, p2, remaining_races=remaining_races,
                 gap_trend=gap_trend,
@@ -419,24 +454,12 @@ class F1ScoreboardPlugin(BasePlugin):
                 "championship_battle", [battle_card], separator)
 
         # Constructor championship battle card (P1 vs P2 constructor)
-        if r.show_constructor_battle and len(self._constructor_standings) >= 2:
-            cp1 = self._constructor_standings[0]
-            cp2 = self._constructor_standings[1]
-            # Gap trend: sum each constructor's driver points from most recent race
-            con_gap_trend = 0
-            if self._recent_races:
-                last_race = self._recent_races[0]
-                all_res = last_race.get("all_results", [])
-                cp1_id = cp1.get("constructor_id", "")
-                cp2_id = cp2.get("constructor_id", "")
-                cp1_race_pts = sum(
-                    e.get("points", 0) for e in all_res
-                    if e.get("constructor_id", "") == cp1_id)
-                cp2_race_pts = sum(
-                    e.get("points", 0) for e in all_res
-                    if e.get("constructor_id", "") == cp2_id)
-                if cp1_race_pts > 0 or cp2_race_pts > 0:
-                    con_gap_trend = int(cp1_race_pts - cp2_race_pts)
+        if r.show_constructor_battle and self._constructor_battle_p1 and self._constructor_battle_p2:
+            cp1 = self._constructor_battle_p1
+            cp2 = self._constructor_battle_p2
+            con_gap_trend = self._compute_race_gap_trend(
+                cp1.get("constructor_id", ""), cp2.get("constructor_id", ""),
+                use_constructor=True)
             con_battle = r.render_constructor_battle_card(
                 cp1, cp2, remaining_races=remaining_races,
                 gap_trend=con_gap_trend,
@@ -533,8 +556,8 @@ class F1ScoreboardPlugin(BasePlugin):
                     fav = results[3]
                     if fav.get("code", "").upper() == self.favorite_driver:
                         cards.append(r.render_favorite_race_card(race, fav))
-                # Gap chart bar visualization
-                if show_gap_chart:
+                # Gap chart bar visualization (skip if no result data available)
+                if show_gap_chart and race.get("all_results"):
                     cards.append(r.render_race_gap_chart(race, top_n=gap_chart_n))
                 # Points haul bar chart (uses full unfiltered results)
                 if show_haul:
