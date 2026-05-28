@@ -850,6 +850,37 @@ class F1Renderer:
             y_pos += self._get_text_height(draw, location,
                                           self.fonts["small"]) + 1
 
+        # Next session label + local time (if between circuit and countdown)
+        next_sess_type = race.get("next_session_type", "")
+        sessions = race.get("sessions", [])
+        next_sess_date = ""
+        for sess in sessions:
+            if sess.get("type_abbr") == next_sess_type and sess.get("date"):
+                next_sess_date = sess["date"]
+                break
+
+        if next_sess_type and next_sess_date and y_pos + 6 < self.display_height - 10:
+            sess_labels = {
+                "FP1": "FP1", "FP2": "FP2", "FP3": "FP3",
+                "Qual": "QUALI", "Race": "RACE",
+                "SS": "S.QUALI", "SR": "SPRINT",
+            }
+            sess_label = sess_labels.get(next_sess_type, next_sess_type)
+            try:
+                dt = self._to_local_dt(next_sess_date)
+                time_str = dt.strftime("%a %I:%M%p").upper().lstrip("0")
+                next_line = f"{sess_label}: {time_str}"
+            except (ValueError, TypeError):
+                next_line = f"NEXT: {sess_label}"
+
+            next_line = self._truncate_text(
+                draw, next_line, self.fonts["small"], text_max_x - 2)
+            self._draw_text_outlined(draw, (2, y_pos), next_line,
+                                    self.fonts["small"],
+                                    fill=(100, 200, 255))
+            y_pos += self._get_text_height(
+                draw, next_line, self.fonts["small"]) + 1
+
         # Countdown timer (bottom)
         countdown_seconds = race.get("countdown_seconds")
         if countdown_seconds is not None and countdown_seconds >= 0:
@@ -885,9 +916,17 @@ class F1Renderer:
                 else:
                     countdown_text = f"{hours}H {minutes}M"
 
-                # Date prefix
-                race_date = race.get("date", "")
+                # Find the Race session date for the date prefix
                 date_prefix = ""
+                race_date = ""
+                # Prefer the Race session date over the event date
+                for sess in race.get("sessions", []):
+                    if sess.get("type_abbr") == "Race" and sess.get("date"):
+                        race_date = sess["date"]
+                        break
+                if not race_date:
+                    race_date = race.get("date", "")
+
                 if race_date:
                     try:
                         dt = self._to_local_dt(race_date)
