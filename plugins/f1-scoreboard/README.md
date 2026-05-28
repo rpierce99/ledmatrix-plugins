@@ -18,7 +18,7 @@ Data is sourced from public ESPN F1 endpoints, Jolpica/Ergast, and OpenF1.
 - **Constructor standings** with team logos, gap bars, and per-driver point split (`NOR 189 | PIA 145`)
 - **Favorite driver spotlight** — full card for your chosen driver: position, points, gap to leader, team color banner
 - **Favorite team spotlight** — team logo, both drivers, constructor position and points
-- **Recent race results** — podium cards with winner, P2, P3, gap times, fastest-lap dot, positions-gained delta (`+N`/`-N`), and retirement (`RET`) indicators; plus a dedicated **favorite driver highlight card** showing their position, gap, delta, and points scored when they finish outside the top 3
+- **Recent race results** — podium cards with winner, P2, P3, gap times, fastest-lap dot, positions-gained delta (`+N`/`-N`), and retirement (`RET`) indicators; plus a dedicated **favorite driver highlight card** showing their position, gap, delta, and points scored when they finish outside the top 3; followed by a **points haul card** with team-colored bars showing championship points scored by each driver
 - **Upcoming race card** — circuit name, country, date, session times, and circuit layout map art; followed by a **circuit stats card** with laps, distance per lap, total race distance, and the official lap record
 - **Qualifying results** — Q1 / Q2 / Q3 breakdown with gap-to-pole times
 - **Free practice standings** — FP1, FP2, FP3 with lap times
@@ -80,6 +80,8 @@ Each mode section has an `enabled` toggle and mode-specific options:
 | `recent_races` | `always_show_favorite` | `true` | Append favorite driver even outside top N |
 | `recent_races` | `show_position_delta` | `true` | Show `+N`/`-N` positions gained/lost vs grid in green/red |
 | `recent_races` | `show_dnf_status` | `true` | Show `RET` or `+NL` for retirements and lapped finishers |
+| `recent_races` | `show_points_haul` | `true` | Show a points bar-chart card after each race (team-colored bars, one row per driver) |
+| `recent_races` | `points_haul_drivers` | `5` | Number of drivers to show on the points haul card (3–10) |
 | `upcoming` | `show_session_times` | `true` | Show practice / qualifying / race times |
 | `upcoming` | `countdown_enabled` | `true` | Live countdown to next session |
 | `upcoming` | `show_circuit_info` | `true` | Show circuit stats card after upcoming race card (laps, km, lap record) |

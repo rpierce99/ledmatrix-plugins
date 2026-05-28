@@ -146,9 +146,23 @@
           "title": "Show DNF/Retirement",
           "default": true,
           "description": "Show RET for retired drivers or +NL for lapped drivers instead of gap time"
+        },
+        "show_points_haul": {
+          "type": "boolean",
+          "title": "Show Points Haul Card",
+          "default": true,
+          "description": "Show a bar-chart card after each race result displaying championship points scored per driver"
+        },
+        "points_haul_drivers": {
+          "type": "integer",
+          "title": "Points Haul Drivers",
+          "default": 5,
+          "minimum": 3,
+          "maximum": 10,
+          "description": "Number of point-scoring drivers to show on the points haul bar chart (max 10 drivers score in F1)"
         }
       },
-      "x-propertyOrder": ["enabled", "number_of_races", "top_finishers", "always_show_favorite", "show_position_delta", "show_dnf_status"],
+      "x-propertyOrder": ["enabled", "number_of_races", "top_finishers", "always_show_favorite", "show_position_delta", "show_dnf_status", "show_points_haul", "points_haul_drivers"],
       "additionalProperties": false
     },
     "upcoming": {

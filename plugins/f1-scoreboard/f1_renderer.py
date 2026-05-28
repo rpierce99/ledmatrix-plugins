@@ -758,6 +758,104 @@ class F1Renderer:
 
         return img
 
+    # ─── Race Points Haul Card ─────────────────────────────────────────
+
+    def render_race_points_haul(self, race: Dict, top_n: int = 5) -> Image.Image:
+        """
+        Bar chart of points scored per driver in a race.
+        Uses race["all_results"] (full 20-driver list) when available,
+        falling back to race["results"].
+        """
+        img = Image.new("RGBA", (self.display_width, self.display_height), (0, 0, 0, 255))
+        draw = ImageDraw.Draw(img)
+
+        all_results = race.get("all_results", race.get("results", []))
+        # Only drivers who scored points, sorted by points descending
+        point_scorers = sorted(
+            [r for r in all_results if float(r.get("points", 0)) > 0],
+            key=lambda r: float(r.get("points", 0)),
+            reverse=True)[:top_n]
+
+        race_name = race.get("race_name", "Grand Prix")
+        short_name = race_name.replace("Grand Prix", "GP")
+
+        # Header
+        header_h = self._th(draw, "A", self.fonts["detail"]) + 1
+        draw.rectangle([0, 0, self.display_width - 1, header_h + 1], fill=(20, 0, 0))
+        title = f"{short_name} PTS"
+        title_trunc = self._truncate(draw, title, self.fonts["detail"],
+                                     self.display_width - 4)
+        self._draw_text_outlined(draw, (3, 1), title_trunc,
+                                 self.fonts["detail"], fill=F1_RED)
+
+        if not point_scorers:
+            return img
+
+        content_y = header_h + 2
+        content_h = self.display_height - content_y - 1
+        n = len(point_scorers)
+        row_h = max(4, content_h // n)
+
+        max_pts = float(point_scorers[0].get("points", 25))
+        if max_pts <= 0:
+            max_pts = 25.0
+
+        # Layout columns
+        accent_w = 2
+        code_x = accent_w + 2
+        code_field_w = self._tw(draw, "NOR", self.fonts["small"]) + 1
+        pts_str_max = self._tw(draw, "26", self.fonts["small"]) + 2
+        bar_x0 = code_x + code_field_w + 2
+        bar_x1 = self.display_width - pts_str_max - 2
+        bar_available = max(1, bar_x1 - bar_x0)
+
+        for i, r in enumerate(point_scorers):
+            row_y = content_y + i * row_h
+            if row_y >= self.display_height - 1:
+                break
+
+            cid = r.get("constructor_id", "")
+            tc = get_team_color(cid)
+            tc_bright = _team_color_bright(cid, min_max=120)
+            pts = float(r.get("points", 0))
+            code = r.get("code", "???")
+
+            row_bot = min(row_y + row_h - 1, self.display_height - 2)
+
+            # Team accent bar on left
+            draw.rectangle([0, row_y, accent_w - 1, row_bot], fill=tc)
+
+            # Driver code
+            code_trunc = self._truncate(draw, code, self.fonts["small"], code_field_w)
+            text_h = self._th(draw, "A", self.fonts["small"])
+            cy = row_y + max(0, (row_h - text_h) // 2)
+            draw.text((code_x, cy), code_trunc, font=self.fonts["small"], fill=tc_bright)
+
+            # Points bar (team color fill)
+            fill_ratio = pts / max_pts
+            fill_w = max(1, int(bar_available * fill_ratio))
+            bar_top = row_y + 1
+            bar_bot = row_bot - 1
+            if bar_bot > bar_top:
+                bar_color = tuple(max(0, int(c * 0.55)) for c in tc)
+                draw.rectangle([bar_x0, bar_top, bar_x0 + fill_w, bar_bot],
+                               fill=bar_color)
+
+            # Points number right-aligned
+            pts_int = int(pts) if pts == int(pts) else pts
+            pts_str = str(pts_int)
+            pts_w = self._tw(draw, pts_str, self.fonts["small"])
+            pts_x = self.display_width - pts_w - 2
+            draw.text((pts_x, cy), pts_str, font=self.fonts["small"], fill=(200, 200, 200))
+
+            # Row separator
+            if i < n - 1 and row_y + row_h < self.display_height - 1:
+                draw.line([(2, row_y + row_h - 1),
+                           (self.display_width - 2, row_y + row_h - 1)],
+                          fill=(25, 25, 25))
+
+        return img
+
     # ─── Shared Driver Row ─────────────────────────────────────────────
 
     def _render_driver_row(self, entry: Dict, time_key: str = "",

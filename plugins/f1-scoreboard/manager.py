@@ -282,6 +282,8 @@ class F1ScoreboardPlugin(BasePlugin):
             for race in races:
                 race_copy = dict(race)
                 results = race.get("results", [])
+                # Preserve full results for the points haul card
+                race_copy["all_results"] = results
                 race_copy["results"] = self.data_source.apply_favorite_filter(
                     results, top_finishers,
                     favorite_driver=self.favorite_driver,
@@ -473,7 +475,10 @@ class F1ScoreboardPlugin(BasePlugin):
             self._scroll_manager.prepare_and_display(
                 "constructor_standings", cards, separator)
 
-        # Recent races (podium card + optional favorite highlight card)
+        # Recent races (podium card + optional favorite highlight + points haul)
+        rr_cfg = self.config.get("recent_races", {})
+        show_haul = rr_cfg.get("show_points_haul", True)
+        haul_top_n = rr_cfg.get("points_haul_drivers", 5)
         if self._recent_races:
             cards = []
             for race in self._recent_races:
@@ -484,6 +489,9 @@ class F1ScoreboardPlugin(BasePlugin):
                     fav = results[3]
                     if fav.get("code", "").upper() == self.favorite_driver:
                         cards.append(r.render_favorite_race_card(race, fav))
+                # Points haul bar chart (uses full unfiltered results)
+                if show_haul:
+                    cards.append(r.render_race_points_haul(race, top_n=haul_top_n))
             self._scroll_manager.prepare_and_display(
                 "recent_races", cards, separator)
 
