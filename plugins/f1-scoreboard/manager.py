@@ -373,6 +373,17 @@ class F1ScoreboardPlugin(BasePlugin):
         is_live = self._is_live
         live_sess = self._live_session
 
+        # Championship leaders intro card (very first in Vegas scroll)
+        if self._driver_standings and self._constructor_standings:
+            drv_leader = self._driver_standings[0] if self._driver_standings else None
+            con_leader = self._constructor_standings[0] if self._constructor_standings else None
+            if drv_leader and con_leader:
+                leaders_card = r.render_championship_leaders(
+                    drv_leader, con_leader,
+                    is_live=is_live, live_session=live_sess)
+                self._scroll_manager.prepare_and_display(
+                    "championship_leaders", [leaders_card], separator)
+
         # Spotlight card for favorite driver (appears first in sequence)
         if self.favorite_driver and self._driver_standings:
             fav_entry = next(
@@ -605,6 +616,12 @@ class F1ScoreboardPlugin(BasePlugin):
     def get_vegas_content(self) -> Optional[List[Image.Image]]:
         """Return rendered cards for modes that have data."""
         images = []
+
+        # Championship leaders overview card (very first)
+        if self._scroll_manager.is_mode_prepared("championship_leaders"):
+            images.extend(
+                self._scroll_manager.get_vegas_items_for_mode(
+                    "championship_leaders"))
 
         # Spotlight cards go first (most important, followed driver/team)
         for spotlight_key in ("driver_spotlight", "team_spotlight"):

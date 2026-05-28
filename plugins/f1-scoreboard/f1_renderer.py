@@ -1223,6 +1223,130 @@ class F1Renderer:
 
         return img
 
+    # ─── Championship Leaders Card ────────────────────────────────────
+
+    def render_championship_leaders(
+            self,
+            driver_leader: Dict,
+            constructor_leader: Dict,
+            is_live: bool = False,
+            live_session: str = "") -> Image.Image:
+        """
+        Render a championship leaders overview card.
+
+        Shows current P1 driver and P1 constructor side by side.
+        Used as a title card at the start of Vegas scroll.
+        """
+        img = Image.new("RGBA",
+                        (self.display_width, self.display_height),
+                        (0, 0, 0, 255))
+        draw = ImageDraw.Draw(img)
+
+        # F1 logo top-left
+        f1_logo = self.logo_loader.get_f1_logo(
+            max_height=int(self.display_height * 0.35),
+            max_width=int(self.display_width * 0.12))
+        x_logo = 1
+        if f1_logo:
+            img.paste(f1_logo, (x_logo, 1), f1_logo)
+
+        # "2026 STANDINGS" title
+        year_text = "STANDINGS"
+        title_x = (f1_logo.width + 4) if f1_logo else 2
+        self._draw_text_outlined(draw, (title_x, 1), year_text,
+                                self.fonts["small"],
+                                fill=(200, 200, 200))
+
+        separator_y = 1 + self._get_text_height(
+            draw, year_text, self.fonts["small"]) + 2
+
+        # Separator line
+        draw.line([(0, separator_y), (self.display_width - 1, separator_y)],
+                  fill=(60, 60, 60))
+
+        content_y = separator_y + 2
+        content_h = self.display_height - content_y - 1
+        half_w = self.display_width // 2
+
+        # ── Driver leader (left half) ──────────────────────────────────
+        drv_id = driver_leader.get("constructor_id", "")
+        drv_color = get_team_color(drv_id)
+
+        # Team color accent bar on far left
+        draw.rectangle([0, content_y, 1, self.display_height - 1],
+                       fill=drv_color)
+
+        drv_logo = self.logo_loader.get_team_logo(
+            drv_id,
+            max(6, int(content_h * 0.7)),
+            max(6, int(content_h * 0.7)))
+        drv_x = 4
+        if drv_logo:
+            logo_y = content_y + (content_h - drv_logo.height) // 2
+            img.paste(drv_logo, (drv_x, logo_y), drv_logo)
+            drv_x += drv_logo.width + 3
+
+        drv_code = driver_leader.get("code", "???")
+        drv_pts = int(driver_leader.get("points", 0))
+        drv_pos = driver_leader.get("position", 1)
+
+        self._draw_text_outlined(draw, (drv_x, content_y), drv_code,
+                                self.fonts["position"],
+                                fill=drv_color)
+        pts_y = content_y + self._get_text_height(
+            draw, drv_code, self.fonts["position"]) + 1
+        if pts_y + 5 < self.display_height:
+            self._draw_text_outlined(draw, (drv_x, pts_y),
+                                    f"{drv_pts}pts",
+                                    self.fonts["small"],
+                                    fill=(255, 255, 100))
+
+        # ── Constructor leader (right half) ────────────────────────────
+        con_id = constructor_leader.get("constructor_id", "")
+        con_color = get_team_color(con_id)
+
+        # Divider between halves
+        draw.line([(half_w, separator_y), (half_w, self.display_height - 1)],
+                  fill=(50, 50, 50))
+
+        con_logo = self.logo_loader.get_team_logo(
+            con_id,
+            max(6, int(content_h * 0.7)),
+            max(6, int(content_h * 0.7)))
+        con_x = half_w + 4
+        if con_logo:
+            logo_y = content_y + (content_h - con_logo.height) // 2
+            img.paste(con_logo, (con_x, logo_y), con_logo)
+            con_x += con_logo.width + 3
+
+        con_name = constructor_leader.get("constructor", "")
+        con_pts = int(constructor_leader.get("points", 0))
+        # Truncate team name to fit right half
+        max_con_w = self.display_width - con_x - 2
+        con_name = self._truncate_text(
+            draw, con_name, self.fonts["position"], max_con_w)
+
+        self._draw_text_outlined(draw, (con_x, content_y), con_name,
+                                self.fonts["position"],
+                                fill=con_color)
+        con_pts_y = content_y + self._get_text_height(
+            draw, con_name, self.fonts["position"]) + 1
+        if con_pts_y + 5 < self.display_height:
+            self._draw_text_outlined(draw, (con_x, con_pts_y),
+                                    f"{con_pts}pts",
+                                    self.fonts["small"],
+                                    fill=(255, 255, 100))
+
+        # Accent on far right edge
+        draw.rectangle([self.display_width - 2, content_y,
+                        self.display_width - 1, self.display_height - 1],
+                       fill=con_color)
+
+        if is_live and live_session:
+            self._draw_live_badge(draw, live_session)
+
+        return img
+
     # ─── Section Separator ─────────────────────────────────────────────
 
     def render_f1_separator(self) -> Image.Image:
