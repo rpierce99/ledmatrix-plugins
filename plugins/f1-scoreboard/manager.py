@@ -396,8 +396,24 @@ class F1ScoreboardPlugin(BasePlugin):
         if r.show_championship_battle and len(self._driver_standings) >= 2:
             p1 = self._driver_standings[0]
             p2 = self._driver_standings[1]
+            # Gap trend: points delta from most recent race (positive = leader extended)
+            gap_trend = 0
+            if self._recent_races:
+                last_race = self._recent_races[0]
+                all_res = last_race.get("all_results", [])
+                p1_code = p1.get("code", "").upper()
+                p2_code = p2.get("code", "").upper()
+                p1_race_pts = next(
+                    (e.get("points", 0) for e in all_res
+                     if e.get("code", "").upper() == p1_code), None)
+                p2_race_pts = next(
+                    (e.get("points", 0) for e in all_res
+                     if e.get("code", "").upper() == p2_code), None)
+                if p1_race_pts is not None and p2_race_pts is not None:
+                    gap_trend = int(p1_race_pts - p2_race_pts)
             battle_card = r.render_championship_battle_card(
                 p1, p2, remaining_races=remaining_races,
+                gap_trend=gap_trend,
                 is_live=is_live, live_session=live_sess)
             self._scroll_manager.prepare_and_display(
                 "championship_battle", [battle_card], separator)

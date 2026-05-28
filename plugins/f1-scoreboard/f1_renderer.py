@@ -1950,6 +1950,7 @@ class F1Renderer:
     def render_championship_battle_card(
             self, p1: Dict, p2: Dict,
             remaining_races: int = 0,
+            gap_trend: int = 0,
             is_live: bool = False, live_session: str = "") -> Image.Image:
         """
         Driver championship title fight card.
@@ -2057,6 +2058,18 @@ class F1Renderer:
         gap_x = (self.display_width - gap_w) // 2
         draw.text((gap_x, gap_row_y), gap_str,
                   font=self.fonts["small"], fill=(220, 220, 220))
+
+        # Gap trend: +N = leader extended (red), -N = gap closed (green)
+        if gap_trend != 0:
+            trend_str = f"+{gap_trend}" if gap_trend > 0 else str(gap_trend)
+            trend_color = (220, 80, 50) if gap_trend > 0 else (0, 200, 80)
+            trend_w = self._tw(draw, trend_str, self.fonts["small"])
+            trend_x = gap_x + gap_w + 2
+            # Estimate space before right-side label
+            clinch_reserve = self._tw(draw, "ALIVE", self.fonts["small"]) + 6
+            if trend_x + trend_w < self.display_width - clinch_reserve:
+                draw.text((trend_x, gap_row_y), trend_str,
+                          font=self.fonts["small"], fill=trend_color)
 
         # Races remaining (left side of gap row)
         if remaining_races > 0:

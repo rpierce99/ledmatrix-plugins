@@ -12,7 +12,7 @@ Data is sourced from public ESPN F1 endpoints, Jolpica/Ergast, and OpenF1.
 ## Features
 
 - **Championship leaders card** — split view of the current driver and constructor leaders with team colors and win counts
-- **Driver championship battle card** — P1 vs P2 driver split card with gap in points, races remaining, and ALIVE / NEAR / WON closability status and progress bar
+- **Driver championship battle card** — P1 vs P2 driver split card with gap in points, races remaining, ALIVE / NEAR / WON closability status, progress bar, and a last-race gap trend indicator (`+N` red = leader extending, `-N` green = challenger closing)
 - **Constructor championship battle card** — P1 vs P2 constructor split card with team logos, points gap, races remaining, and closability bar
 - **Driver form guide card** — compact 2-column grid showing the last N race positions per driver as colored boxes (gold P1, silver P2, bronze P3, green points-finish, red DNF)
 - **Driver standings** with championship points gap bars and team-color accents
