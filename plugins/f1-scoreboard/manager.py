@@ -540,6 +540,10 @@ class F1ScoreboardPlugin(BasePlugin):
         results = self._qualifying.get("results", [])
         race_name = self._qualifying.get("race_name", "")
 
+        # Team H2H card at the start of qualifying section
+        if quali_config.get("show_team_duel", True) and results:
+            cards.append(r.render_qualifying_team_duel_card(self._qualifying))
+
         for session_key, show_key, label in [
             ("q3", "show_q3", "Q3"),
             ("q2", "show_q2", "Q2"),

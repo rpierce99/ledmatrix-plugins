@@ -232,9 +232,15 @@
           "title": "Show Gaps",
           "default": true,
           "description": "Show time differential to session leader"
+        },
+        "show_team_duel": {
+          "type": "boolean",
+          "title": "Show Team H2H Card",
+          "default": true,
+          "description": "Show a summary card at the start of qualifying with each team's intra-team battle (which driver outqualified their teammate and by how many positions)"
         }
       },
-      "x-propertyOrder": ["enabled", "show_q3", "show_q2", "show_q1", "show_gaps"],
+      "x-propertyOrder": ["enabled", "show_q3", "show_q2", "show_q1", "show_gaps", "show_team_duel"],
       "additionalProperties": false
     },
     "practice": {

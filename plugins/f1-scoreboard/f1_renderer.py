@@ -927,6 +927,109 @@ class F1Renderer:
 
         return img
 
+    # ─── Qualifying Team H2H Card ──────────────────────────────────────
+
+    def render_qualifying_team_duel_card(self, qualifying: Dict) -> Image.Image:
+        """
+        Compact card showing intra-team qualifying battles for all constructors.
+        Each row: team accent bar | team name | winner code | vs | loser code | Δpos
+        Winner rendered in bright team color, loser dimmed.
+        Teams sorted by their best qualifier's position.
+        """
+        img = Image.new("RGBA", (self.display_width, self.display_height), (0, 0, 0, 255))
+        draw = ImageDraw.Draw(img)
+
+        results = qualifying.get("results", [])
+        race_name = qualifying.get("race_name", "")
+        short_name = race_name.replace("Grand Prix", "GP")
+
+        # Group results by constructor; positions already in order
+        team_map: Dict[str, List[Dict]] = {}
+        for r in results:
+            cid = r.get("constructor_id", "")
+            if cid:
+                team_map.setdefault(cid, []).append(r)
+
+        # Build duels sorted by the better driver's position
+        duels = []
+        for cid, entries in team_map.items():
+            if len(entries) < 2:
+                continue
+            e1, e2 = sorted(entries, key=lambda e: e.get("position", 99))[:2]
+            # e1 = better qualifier (lower position number)
+            pos1 = e1.get("position", 99)
+            pos2 = e2.get("position", 99)
+            duels.append((pos1, cid, e1, e2, pos2 - pos1))
+
+        duels.sort(key=lambda d: d[0])
+
+        # Header
+        header_h = self._th(draw, "A", self.fonts["detail"]) + 1
+        draw.rectangle([0, 0, self.display_width - 1, header_h + 1], fill=(15, 0, 30))
+        hdr_text = f"QUALI H2H"
+        if short_name:
+            hdr_text = f"{short_name} H2H"
+        hdr_w = self._tw(draw, hdr_text, self.fonts["detail"])
+        self._draw_text_outlined(draw, ((self.display_width - hdr_w) // 2, 1),
+                                 hdr_text, self.fonts["detail"], fill=(180, 80, 255))
+
+        content_y = header_h + 2
+        content_h = self.display_height - content_y - 1
+        n_teams = min(len(duels), 5)
+        if n_teams == 0:
+            return img
+
+        row_h = max(4, content_h // n_teams)
+        text_h = self._th(draw, "A", self.fonts["small"])
+
+        for i, (pos1, cid, winner, loser, delta) in enumerate(duels[:n_teams]):
+            row_y = content_y + i * row_h
+            if row_y >= self.display_height - 1:
+                break
+
+            tc = get_team_color(cid)
+            tc_bright = _team_color_bright(cid, min_max=130)
+            tc_dim = tuple(max(0, int(c * 0.45)) for c in tc_bright)
+            row_bot = min(row_y + row_h - 1, self.display_height - 2)
+
+            # Team accent bar
+            draw.rectangle([0, row_y, 1, row_bot], fill=tc)
+
+            cy = row_y + max(0, (row_h - text_h) // 2)
+
+            # Layout: [acc][team_abbr][winner_code][>][loser_code][delta]
+            x = 3
+            team_abbr = _team_short(cid)[:5]  # up to 5 chars to keep it compact
+            team_max = self._tw(draw, "RSTM.", self.fonts["small"]) + 2
+            team_trunc = self._truncate(draw, team_abbr, self.fonts["small"], team_max)
+            draw.text((x, cy), team_trunc, font=self.fonts["small"], fill=tc_dim)
+            x += team_max + 2
+
+            w_code = winner.get("code", "???")
+            draw.text((x, cy), w_code, font=self.fonts["small"], fill=tc_bright)
+            x += self._tw(draw, "NOR", self.fonts["small"]) + 2
+
+            # ">" separator
+            draw.text((x, cy), ">", font=self.fonts["small"], fill=(60, 60, 60))
+            x += self._tw(draw, ">", self.fonts["small"]) + 2
+
+            l_code = loser.get("code", "???")
+            draw.text((x, cy), l_code, font=self.fonts["small"], fill=tc_dim)
+            x += self._tw(draw, "NOR", self.fonts["small"]) + 3
+
+            # Position delta (how many spots ahead)
+            if delta > 0:
+                delta_str = f"+{delta}"
+                draw.text((x, cy), delta_str, font=self.fonts["small"], fill=(100, 100, 100))
+
+            # Row separator
+            if i < n_teams - 1 and row_y + row_h < self.display_height - 1:
+                draw.line([(2, row_y + row_h - 1),
+                           (self.display_width - 2, row_y + row_h - 1)],
+                          fill=(25, 25, 25))
+
+        return img
+
     # ─── Qualifying Card ───────────────────────────────────────────────
 
     def render_qualifying_entry(self, entry: Dict, session_label: str = "Q3") -> Image.Image:
