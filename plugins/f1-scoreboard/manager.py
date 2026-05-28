@@ -422,8 +422,24 @@ class F1ScoreboardPlugin(BasePlugin):
         if r.show_constructor_battle and len(self._constructor_standings) >= 2:
             cp1 = self._constructor_standings[0]
             cp2 = self._constructor_standings[1]
+            # Gap trend: sum each constructor's driver points from most recent race
+            con_gap_trend = 0
+            if self._recent_races:
+                last_race = self._recent_races[0]
+                all_res = last_race.get("all_results", [])
+                cp1_id = cp1.get("constructor_id", "")
+                cp2_id = cp2.get("constructor_id", "")
+                cp1_race_pts = sum(
+                    e.get("points", 0) for e in all_res
+                    if e.get("constructor_id", "") == cp1_id)
+                cp2_race_pts = sum(
+                    e.get("points", 0) for e in all_res
+                    if e.get("constructor_id", "") == cp2_id)
+                if cp1_race_pts > 0 or cp2_race_pts > 0:
+                    con_gap_trend = int(cp1_race_pts - cp2_race_pts)
             con_battle = r.render_constructor_battle_card(
                 cp1, cp2, remaining_races=remaining_races,
+                gap_trend=con_gap_trend,
                 is_live=is_live, live_session=live_sess)
             self._scroll_manager.prepare_and_display(
                 "constructor_battle", [con_battle], separator)
@@ -497,11 +513,13 @@ class F1ScoreboardPlugin(BasePlugin):
             self._scroll_manager.prepare_and_display(
                 "constructor_standings", cards, separator)
 
-        # Recent races (winners summary + podium cards + favorite highlight + points haul)
+        # Recent races (winners summary + podium cards + favorite highlight + points haul + gap chart)
         rr_cfg = self.config.get("recent_races", {})
         show_haul = rr_cfg.get("show_points_haul", True)
         haul_top_n = rr_cfg.get("points_haul_drivers", 5)
         show_winners = rr_cfg.get("show_winners_summary", True)
+        show_gap_chart = rr_cfg.get("show_gap_chart", True)
+        gap_chart_n = rr_cfg.get("gap_chart_drivers", 5)
         if self._recent_races:
             cards = []
             # Winners summary at the top (only if showing 2+ races)
@@ -515,6 +533,9 @@ class F1ScoreboardPlugin(BasePlugin):
                     fav = results[3]
                     if fav.get("code", "").upper() == self.favorite_driver:
                         cards.append(r.render_favorite_race_card(race, fav))
+                # Gap chart bar visualization
+                if show_gap_chart:
+                    cards.append(r.render_race_gap_chart(race, top_n=gap_chart_n))
                 # Points haul bar chart (uses full unfiltered results)
                 if show_haul:
                     cards.append(r.render_race_points_haul(race, top_n=haul_top_n))

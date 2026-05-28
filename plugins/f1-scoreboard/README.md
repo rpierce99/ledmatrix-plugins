@@ -13,13 +13,13 @@ Data is sourced from public ESPN F1 endpoints, Jolpica/Ergast, and OpenF1.
 
 - **Championship leaders card** — split view of the current driver and constructor leaders with team colors and win counts
 - **Driver championship battle card** — P1 vs P2 driver split card with gap in points, races remaining, ALIVE / NEAR / WON closability status, progress bar, and a last-race gap trend indicator (`+N` red = leader extending, `-N` green = challenger closing)
-- **Constructor championship battle card** — P1 vs P2 constructor split card with team logos, points gap, races remaining, and closability bar
+- **Constructor championship battle card** — P1 vs P2 constructor split card with team logos, points gap, races remaining, closability bar, and last-race gap trend indicator
 - **Driver form guide card** — compact 2-column grid showing the last N race positions per driver as colored boxes (gold P1, silver P2, bronze P3, green points-finish, red DNF)
 - **Driver standings** with championship points gap bars and team-color accents
 - **Constructor standings** with team logos, gap bars, and per-driver point split (`NOR 189 | PIA 145`)
 - **Favorite driver spotlight** — full card for your chosen driver: position, points, gap to leader, team color banner
 - **Favorite team spotlight** — team logo, both drivers, constructor position and points
-- **Recent race results** — starts with a **winners summary card** listing each recent race winner at a glance; followed by podium cards with winner, P2, P3, gap times, fastest-lap dot, positions-gained delta (`+N`/`-N`), and retirement (`RET`) indicators; plus a **favorite driver highlight card** and a **points haul card** (team-colored bars) per race
+- **Recent race results** — starts with a **winners summary card** listing each recent race winner at a glance; followed by podium cards with winner, P2, P3, gap times, fastest-lap dot, positions-gained delta (`+N`/`-N`), and retirement (`RET`) indicators; plus a **favorite driver highlight card**, a **race gap chart** (team-colored horizontal bars proportional to gap from winner), and a **points haul card** (team-colored bars) per race
 - **Upcoming race card** — circuit name, country, date, session times, and circuit layout map art; followed by a **circuit stats card** with laps, distance per lap, total race distance, and the official lap record
 - **Qualifying results** — Q1 / Q2 / Q3 breakdown with gap-to-pole times; plus a **team H2H card** showing which driver outqualified their teammate and by how many grid positions
 - **Free practice standings** — FP1, FP2, FP3 with lap times
@@ -84,6 +84,8 @@ Each mode section has an `enabled` toggle and mode-specific options:
 | `recent_races` | `show_points_haul` | `true` | Show a points bar-chart card after each race (team-colored bars, one row per driver) |
 | `recent_races` | `points_haul_drivers` | `5` | Number of drivers to show on the points haul card (3–10) |
 | `recent_races` | `show_winners_summary` | `true` | Show a compact winners summary card at the start of the recent races section |
+| `recent_races` | `show_gap_chart` | `true` | Show a horizontal bar chart of each finisher's time gap from the winner (team-colored bars) |
+| `recent_races` | `gap_chart_drivers` | `5` | Number of drivers to show on the race gap bar chart (3–10) |
 | `upcoming` | `show_session_times` | `true` | Show practice / qualifying / race times |
 | `upcoming` | `countdown_enabled` | `true` | Live countdown to next session |
 | `upcoming` | `show_circuit_info` | `true` | Show circuit stats card after upcoming race card (laps, km, lap record) |

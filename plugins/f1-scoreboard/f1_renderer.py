@@ -2117,6 +2117,7 @@ class F1Renderer:
     def render_constructor_battle_card(
             self, p1: Dict, p2: Dict,
             remaining_races: int = 0,
+            gap_trend: int = 0,
             is_live: bool = False, live_session: str = "") -> Image.Image:
         """
         Constructor championship title fight card.
@@ -2221,6 +2222,17 @@ class F1Renderer:
         draw.text((gap_x, gap_row_y), gap_str,
                   font=self.fonts["small"], fill=(220, 220, 220))
 
+        # Gap trend: +N = leader extended (red), -N = gap closed (green)
+        if gap_trend != 0:
+            trend_str = f"+{gap_trend}" if gap_trend > 0 else str(gap_trend)
+            trend_color = (220, 80, 50) if gap_trend > 0 else (0, 200, 80)
+            trend_w = self._tw(draw, trend_str, self.fonts["small"])
+            trend_x = gap_x + gap_w + 2
+            clinch_reserve = self._tw(draw, "ALIVE", self.fonts["small"]) + 6
+            if trend_x + trend_w < self.display_width - clinch_reserve:
+                draw.text((trend_x, gap_row_y), trend_str,
+                          font=self.fonts["small"], fill=trend_color)
+
         if remaining_races > 0:
             races_str = f"{remaining_races}L"
             draw.text((4, gap_row_y), races_str,
@@ -2257,6 +2269,106 @@ class F1Renderer:
 
         if is_live and live_session:
             self._draw_live_badge(draw, live_session)
+
+        return img
+
+    def render_race_gap_chart(self, race: Dict, top_n: int = 5) -> Image.Image:
+        """
+        Horizontal bar chart of race finish gaps for top_n finishers.
+        Winner = full-width bar; others = bars shortened proportional to gap.
+        Team-colored bars. Appears after the podium card per race.
+        """
+        img = Image.new("RGBA", (self.display_width, self.display_height), (0, 0, 0, 255))
+        draw = ImageDraw.Draw(img)
+
+        all_results = race.get("all_results", [])
+        # Use top_n finishers by position; skip DNFs / retirements with no time gap
+        entries = [r for r in all_results if isinstance(r.get("position"), int)
+                   and r.get("position", 0) > 0]
+        entries = sorted(entries, key=lambda r: r.get("position", 99))[:top_n]
+
+        if not entries:
+            return img
+
+        # Parse gap times → seconds for proportional bars
+        # Winner has an absolute time; others have "+12.345" or "+1 Lap" etc.
+        def parse_gap(entry: Dict) -> Optional[float]:
+            t = entry.get("time", "")
+            if not t:
+                return None
+            t = t.strip()
+            if t.startswith("+"):
+                try:
+                    return float(t[1:].split()[0])
+                except ValueError:
+                    return None
+            return 0.0  # winner
+
+        winner_entry = entries[0]
+        winner_entry_gap = 0.0
+
+        gaps = []
+        for e in entries:
+            g = parse_gap(e)
+            gaps.append(g)
+
+        # Find max finite gap for scaling
+        finite_gaps = [g for g in gaps if g is not None]
+        max_gap = max(finite_gaps) if finite_gaps else 0.0
+        if max_gap <= 0:
+            max_gap = 1.0  # prevent divide-by-zero
+
+        # Layout
+        row_h = max(4, self.display_height // len(entries))
+        label_w = 18
+        bar_x0 = label_w + 1
+        bar_max_w = self.display_width - bar_x0 - 2
+
+        # Header: race name
+        race_name = race.get("race_name", "")
+        if race_name:
+            short_gp = race_name.replace(" Grand Prix", " GP")
+            short_gp = short_gp[:14] if len(short_gp) > 14 else short_gp
+            hdr_w = self._tw(draw, short_gp, self.fonts["small"])
+            draw.text(((self.display_width - hdr_w) // 2, 1),
+                      short_gp, font=self.fonts["small"], fill=(120, 120, 120))
+            start_y = 1 + self._th(draw, short_gp, self.fonts["small"]) + 1
+        else:
+            start_y = 1
+
+        n_rows = len(entries)
+        available_h = self.display_height - start_y
+        row_h = max(4, available_h // n_rows)
+
+        for i, (entry, gap_secs) in enumerate(zip(entries, gaps)):
+            row_y = start_y + i * row_h
+            cid = entry.get("constructor_id", "")
+            code = entry.get("code", "")[:3]
+            tc = _team_color_bright(cid, min_max=120)
+
+            # Driver code label (left)
+            label = f"{i+1}.{code}" if i > 0 else code
+            draw.text((1, row_y), label, font=self.fonts["small"], fill=tc)
+
+            # Bar
+            if gap_secs is None:
+                # Lapped or retired: show thin stub bar in grey
+                bar_fill_w = max(2, bar_max_w // 8)
+                bar_color = (60, 60, 60)
+            elif gap_secs == 0.0:
+                bar_fill_w = bar_max_w
+                bar_color = tc
+            else:
+                ratio = 1.0 - min(1.0, gap_secs / max_gap)
+                bar_fill_w = max(2, int(bar_max_w * ratio))
+                bar_color = tuple(max(0, int(c * 0.75)) for c in tc)
+
+            bar_y0 = row_y + 1
+            bar_y1 = row_y + row_h - 2
+            if bar_y1 > bar_y0:
+                draw.rectangle([bar_x0, bar_y0,
+                                 bar_x0 + bar_fill_w, bar_y1],
+                                fill=bar_color)
 
         return img
 

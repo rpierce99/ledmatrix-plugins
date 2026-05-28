@@ -166,9 +166,23 @@
           "title": "Show Winners Summary Card",
           "default": true,
           "description": "Show a compact summary card listing the winner of each recent race (team accent color, race name, winner code)"
+        },
+        "show_gap_chart": {
+          "type": "boolean",
+          "title": "Show Race Gap Chart",
+          "default": true,
+          "description": "Show a horizontal bar chart visualizing each finisher's time gap from the race winner using team-colored bars"
+        },
+        "gap_chart_drivers": {
+          "type": "integer",
+          "title": "Gap Chart Drivers",
+          "default": 5,
+          "minimum": 3,
+          "maximum": 10,
+          "description": "Number of drivers to show on the race gap bar chart (3-10)"
         }
       },
-      "x-propertyOrder": ["enabled", "number_of_races", "top_finishers", "always_show_favorite", "show_position_delta", "show_dnf_status", "show_points_haul", "points_haul_drivers", "show_winners_summary"],
+      "x-propertyOrder": ["enabled", "number_of_races", "top_finishers", "always_show_favorite", "show_position_delta", "show_dnf_status", "show_points_haul", "points_haul_drivers", "show_winners_summary", "show_gap_chart", "gap_chart_drivers"],
       "additionalProperties": false
     },
     "upcoming": {
