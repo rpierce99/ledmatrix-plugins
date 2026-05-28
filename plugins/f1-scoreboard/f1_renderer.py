@@ -455,6 +455,12 @@ class F1Renderer:
                 gap_trunc = self._truncate(draw, gap_str, self.fonts["small"], section_w - 4)
                 draw.text((x0 + 2, gap_y), gap_trunc, font=self.fonts["small"], fill=gap_color)
 
+            # Fastest lap: purple 3×3 dot in top-right corner of section
+            if r.get("fastest_lap", False):
+                fl_x = x1 - 4
+                fl_y = podium_y + 2
+                draw.rectangle([fl_x, fl_y, fl_x + 2, fl_y + 2], fill=(180, 0, 255))
+
             # Team color line at bottom
             draw.rectangle([x0 + 1, self.display_height - 2, x1 - 1, self.display_height - 1],
                            fill=tuple(max(0, int(c * 0.6)) for c in tc))
