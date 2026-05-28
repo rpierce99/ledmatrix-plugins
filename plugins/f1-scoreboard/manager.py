@@ -664,6 +664,11 @@ class F1ScoreboardPlugin(BasePlugin):
             upcoming_card = self._scroll_renderer.render_upcoming_race(
                 self._enrich_upcoming_with_countdown(self._upcoming_race))
             images.append(upcoming_card)
+            # Circuit stats card (immediately after upcoming race card)
+            if self._scroll_renderer.show_circuit_info:
+                circuit_card = self._scroll_renderer.render_circuit_info_card(
+                    self._upcoming_race)
+                images.append(circuit_card)
 
         # Standings and results
         mode_data = {

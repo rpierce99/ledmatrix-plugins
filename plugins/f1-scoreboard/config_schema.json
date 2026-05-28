@@ -173,9 +173,15 @@
           "title": "Countdown Timer",
           "default": true,
           "description": "Show live countdown timer to next session"
+        },
+        "show_circuit_info": {
+          "type": "boolean",
+          "title": "Show Circuit Stats Card",
+          "default": true,
+          "description": "Show a circuit facts card after the upcoming race card: laps, distance, and lap record"
         }
       },
-      "x-propertyOrder": ["enabled", "show_session_times", "countdown_enabled"],
+      "x-propertyOrder": ["enabled", "show_session_times", "countdown_enabled", "show_circuit_info"],
       "additionalProperties": false
     },
     "qualifying": {

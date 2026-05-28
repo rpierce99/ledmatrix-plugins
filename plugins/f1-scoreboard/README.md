@@ -17,7 +17,7 @@ Data is sourced from public ESPN F1 endpoints, Jolpica/Ergast, and OpenF1.
 - **Favorite driver spotlight** — full card for your chosen driver: position, points, gap to leader, team color banner
 - **Favorite team spotlight** — team logo, both drivers, constructor position and points
 - **Recent race results** — podium cards with winner, P2, P3, gap times, fastest-lap dot, positions-gained delta (`+N`/`-N`), and retirement (`RET`) indicators; plus a dedicated **favorite driver highlight card** showing their position, gap, delta, and points scored when they finish outside the top 3
-- **Upcoming race card** — circuit name, country, date, session times, and circuit layout map art
+- **Upcoming race card** — circuit name, country, date, session times, and circuit layout map art; followed by a **circuit stats card** with laps, distance per lap, total race distance, and the official lap record
 - **Qualifying results** — Q1 / Q2 / Q3 breakdown with gap-to-pole times
 - **Free practice standings** — FP1, FP2, FP3 with lap times
 - **Sprint results** — sprint race finishing order and times
@@ -80,6 +80,7 @@ Each mode section has an `enabled` toggle and mode-specific options:
 | `recent_races` | `show_dnf_status` | `true` | Show `RET` or `+NL` for retirements and lapped finishers |
 | `upcoming` | `show_session_times` | `true` | Show practice / qualifying / race times |
 | `upcoming` | `countdown_enabled` | `true` | Live countdown to next session |
+| `upcoming` | `show_circuit_info` | `true` | Show circuit stats card after upcoming race card (laps, km, lap record) |
 | `qualifying` | `show_q1` / `show_q2` / `show_q3` | `true` | Toggle each qualifying segment |
 | `qualifying` | `show_gaps` | `true` | Show gap-to-pole times |
 | `practice` | `sessions_to_show` | `["FP1","FP2","FP3"]` | Which sessions to render |

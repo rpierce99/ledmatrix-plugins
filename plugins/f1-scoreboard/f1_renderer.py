@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import pytz
 from PIL import Image, ImageDraw, ImageFont
 
+from circuit_data import get_circuit_info
 from logo_downloader import F1LogoLoader
 from team_colors import (F1_RED, PODIUM_COLORS, get_team_color)
 
@@ -101,6 +102,9 @@ class F1Renderer:
 
         cs = self.config.get("constructor_standings", {})
         self.show_driver_split = cs.get("show_driver_split", True)
+
+        up = self.config.get("upcoming", {})
+        self.show_circuit_info = up.get("show_circuit_info", True)
 
         self.fonts = self._load_fonts()
 
@@ -1023,6 +1027,100 @@ class F1Renderer:
                 ct = self._truncate(draw, ct, self.fonts["detail"], text_max_x - x)
                 self._draw_text_outlined(draw, (x, cnt_y), ct, self.fonts["detail"],
                                          fill=(50, 230, 80))
+
+        return img
+
+    # ─── Circuit Info Card ────────────────────────────────────────────
+
+    def render_circuit_info_card(self, race: Dict) -> Image.Image:
+        """
+        Static circuit facts card: laps, length, total distance, lap record.
+        Shown after the upcoming race card in the scroll sequence.
+
+        Layout (128×32 example):
+          [acc] MONACO              78 laps
+                3.337 km/lap  ·  260.3 km
+                REC 1:10.166  HAM  2021
+        """
+        img = Image.new("RGBA", (self.display_width, self.display_height), (0, 0, 0, 255))
+        draw = ImageDraw.Draw(img)
+
+        circuit_name = race.get("circuit_name", "")
+        city = race.get("city", "")
+        info = get_circuit_info(circuit_name, city)
+
+        if not info:
+            # Fallback: just show "CIRCUIT DATA N/A" centered
+            self._draw_accent_bar(draw, "")
+            x = self.accent_bar_width + 3
+            draw.text((x, self.display_height // 2 - 3), "CIRCUIT DATA N/A",
+                      font=self.fonts["small"], fill=(80, 80, 80))
+            return img
+
+        # Red left accent bar
+        draw.rectangle([0, 0, self.accent_bar_width - 1, self.display_height - 1],
+                       fill=F1_RED)
+        x = self.accent_bar_width + 3
+
+        laps = info["laps"]
+        length_km = info["length_km"]
+        total_km = round(laps * length_km, 1)
+
+        # ── Row 1: circuit display name (left) + laps (right) ────────
+        name_disp = info["name"]
+        laps_str = f"{laps}L"
+        laps_w = self._tw(draw, laps_str, self.fonts["detail"])
+        name_max_w = self.display_width - x - laps_w - 4
+        name_trunc = self._truncate(draw, name_disp, self.fonts["detail"], name_max_w)
+        self._draw_text_outlined(draw, (x, 2), name_trunc, self.fonts["detail"],
+                                 fill=(255, 220, 0))
+        draw.text((self.display_width - laps_w - 2, 2), laps_str,
+                  font=self.fonts["detail"], fill=(180, 180, 180))
+
+        row1_h = self._th(draw, name_trunc, self.fonts["detail"])
+
+        # ── Row 2: per-lap distance · total race distance ─────────────
+        row2_y = 2 + row1_h + 2
+        km_str = f"{length_km}km"
+        total_str = f"{total_km}km"
+        sep_str = "  "
+        full_str = km_str + sep_str + total_str
+        if self._tw(draw, full_str, self.fonts["small"]) <= self.display_width - x - 2:
+            draw.text((x, row2_y), km_str, font=self.fonts["small"], fill=(140, 200, 255))
+            draw.text((x + self._tw(draw, km_str + sep_str, self.fonts["small"]), row2_y),
+                      total_str, font=self.fonts["small"], fill=(80, 80, 80))
+        else:
+            draw.text((x, row2_y), km_str, font=self.fonts["small"], fill=(140, 200, 255))
+
+        row2_h = self._th(draw, "A", self.fonts["small"])
+
+        # ── Row 3: lap record ─────────────────────────────────────────
+        row3_y = row2_y + row2_h + 2
+        if row3_y + 4 < self.display_height - 2:
+            rec_time = info.get("record_time", "")
+            rec_driver = info.get("record_driver", "")
+            rec_year = info.get("record_year", "")
+            if rec_time:
+                rec_label = "REC"
+                rec_label_w = self._tw(draw, rec_label, self.fonts["small"])
+                draw.text((x, row3_y), rec_label,
+                          font=self.fonts["small"], fill=(80, 80, 80))
+                rx = x + rec_label_w + 3
+                draw.text((rx, row3_y), rec_time,
+                          font=self.fonts["small"], fill=(255, 180, 0))
+                rx += self._tw(draw, rec_time, self.fonts["small"]) + 4
+                if rec_driver:
+                    draw.text((rx, row3_y), rec_driver,
+                              font=self.fonts["small"], fill=(200, 200, 200))
+                    rx += self._tw(draw, rec_driver, self.fonts["small"]) + 3
+                if rec_year and rx + self._tw(draw, str(rec_year), self.fonts["small"]) < self.display_width - 2:
+                    draw.text((rx, row3_y), f"'{str(rec_year)[-2:]}",
+                              font=self.fonts["small"], fill=(80, 80, 80))
+
+        # Bottom red accent line
+        draw.rectangle([self.accent_bar_width, self.display_height - 2,
+                         self.display_width - 1, self.display_height - 1],
+                        fill=(60, 0, 0))
 
         return img
 
