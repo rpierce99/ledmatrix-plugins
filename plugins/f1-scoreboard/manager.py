@@ -432,16 +432,23 @@ class F1ScoreboardPlugin(BasePlugin):
             self._scroll_manager.prepare_and_display(
                 "driver_standings", cards, separator)
 
-        # Constructor standings
+        # Constructor standings (enriched with per-driver points)
         if self._constructor_standings:
             cards = []
             if r.show_standings_header:
                 cards.append(r.render_standings_header(
                     "CONSTRUCTOR STANDINGS", round_num=round_num,
                     total_rounds=total_rounds, season=season))
-            cards += [r.render_constructor_standing(
-                        e, is_live=is_live, live_session=live_sess)
-                      for e in self._constructor_standings]
+            for e in self._constructor_standings:
+                cid = e.get("constructor_id", "")
+                team_drivers = sorted(
+                    [d for d in self._driver_standings
+                     if d.get("constructor_id") == cid],
+                    key=lambda d: d.get("position", 99))
+                entry = dict(e)
+                entry["team_drivers"] = team_drivers
+                cards.append(r.render_constructor_standing(
+                    entry, is_live=is_live, live_session=live_sess))
             self._scroll_manager.prepare_and_display(
                 "constructor_standings", cards, separator)
 

@@ -13,7 +13,7 @@ Data is sourced from public ESPN F1 endpoints, Jolpica/Ergast, and OpenF1.
 
 - **Championship leaders card** — split view of the current driver and constructor leaders with team colors and win counts
 - **Driver standings** with championship points gap bars and team-color accents
-- **Constructor standings** with team logos and gap bars
+- **Constructor standings** with team logos, gap bars, and per-driver point split (`NOR 189 | PIA 145`)
 - **Favorite driver spotlight** — full card for your chosen driver: position, points, gap to leader, team color banner
 - **Favorite team spotlight** — team logo, both drivers, constructor position and points
 - **Recent race results** — podium cards with winner, P2, P3, gap times, fastest-lap dot, positions-gained delta (`+N`/`-N`), and retirement (`RET`) indicators
@@ -72,6 +72,7 @@ Each mode section has an `enabled` toggle and mode-specific options:
 | `driver_standings` | `always_show_favorite` | `true` | Keep your favorite visible even outside top N |
 | `constructor_standings` | `top_n` | `10` | Number of constructors to display |
 | `constructor_standings` | `always_show_favorite` | `true` | Keep favorite team visible |
+| `constructor_standings` | `show_driver_split` | `true` | Show individual driver point contributions on each constructor card |
 | `recent_races` | `number_of_races` | `3` | Past races to cycle through (1–10) |
 | `recent_races` | `top_finishers` | `3` | Podium depth per race (1–20) |
 | `recent_races` | `always_show_favorite` | `true` | Append favorite driver even outside top N |

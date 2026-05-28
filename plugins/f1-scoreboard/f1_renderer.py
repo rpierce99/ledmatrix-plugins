@@ -99,6 +99,9 @@ class F1Renderer:
         self.show_position_delta = rr.get("show_position_delta", True)
         self.show_dnf_status = rr.get("show_dnf_status", True)
 
+        cs = self.config.get("constructor_standings", {})
+        self.show_driver_split = cs.get("show_driver_split", True)
+
         self.fonts = self._load_fonts()
 
     def _load_fonts(self) -> Dict[str, Any]:
@@ -431,6 +434,36 @@ class F1Renderer:
             if wins_y + 4 < content_h:
                 self._draw_text_outlined(draw, (stat_x, wins_y), f"{wins}W",
                                          self.fonts["small"], fill=(160, 160, 160))
+
+            # ── Row 3: Driver points split ────────────────────────────
+            if self.show_driver_split:
+                team_drivers = entry.get("team_drivers", [])[:2]
+                if team_drivers:
+                    row3_y = row2_y + self._th(draw, pos_text, self.fonts["small"]) + 2
+                    if row3_y + 4 < content_h:
+                        tc_bright = _team_color_bright(cid, min_max=120)
+                        parts = []
+                        for d in team_drivers:
+                            code = d.get("code", "???")
+                            pts_d = int(d.get("points", 0))
+                            parts.append((code, str(pts_d)))
+
+                        # Left-align first driver, right-align second driver
+                        if len(parts) >= 1:
+                            d1_code, d1_pts = parts[0]
+                            d1_str = f"{d1_code} {d1_pts}"
+                            draw.text((x, row3_y), d1_str,
+                                      font=self.fonts["small"], fill=tc_bright)
+                        if len(parts) >= 2:
+                            d2_code, d2_pts = parts[1]
+                            d2_str = f"{d2_code} {d2_pts}"
+                            d2_w = self._tw(draw, d2_str, self.fonts["small"])
+                            d2_x = content_max_x - d2_w
+                            d1_right = x + self._tw(draw, d1_str, self.fonts["small"]) + 2
+                            if d2_x > d1_right:
+                                dim_color = tuple(max(0, int(c * 0.80)) for c in tc_bright)
+                                draw.text((d2_x, row3_y), d2_str,
+                                          font=self.fonts["small"], fill=dim_color)
 
         if is_live and live_session:
             self._draw_live_badge(draw, live_session)

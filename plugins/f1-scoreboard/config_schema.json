@@ -91,9 +91,15 @@
           "title": "Always Show Favorite",
           "default": true,
           "description": "Always include favorite team even if outside top N"
+        },
+        "show_driver_split": {
+          "type": "boolean",
+          "title": "Show Driver Points Split",
+          "default": true,
+          "description": "Show each constructor's two drivers and their individual point contributions (e.g. NOR 189 | PIA 145)"
         }
       },
-      "x-propertyOrder": ["enabled", "top_n", "always_show_favorite"],
+      "x-propertyOrder": ["enabled", "top_n", "always_show_favorite", "show_driver_split"],
       "additionalProperties": false
     },
     "recent_races": {
