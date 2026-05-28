@@ -996,6 +996,20 @@ class F1Renderer:
                        row2_y), gap_trunc, font=self.fonts["small"],
                       fill=(255, 200, 50))
 
+        # Position delta (+N/-N) — shown when entry has a grid position (sprint results)
+        grid_pos = entry.get("grid", 0)
+        pos_val = entry.get("position", 0)
+        if self.show_position_delta and grid_pos > 0 and pos_val > 0:
+            delta = grid_pos - pos_val
+            if delta != 0:
+                delta_str = f"+{delta}" if delta > 0 else str(delta)
+                delta_color = (0, 210, 80) if delta > 0 else (220, 50, 50)
+                d_w = self._tw(draw, delta_str, self.fonts["small"])
+                d_x = content_max_x - d_w
+                if row2_y + 5 < content_h and d_x > x + 20:
+                    draw.text((d_x, row2_y), delta_str,
+                              font=self.fonts["small"], fill=delta_color)
+
         # Team logo right-aligned
         logo = self.logo_loader.get_team_logo(
             cid, max_height=int(content_h * 0.65), max_width=int(content_h * 0.65))
@@ -1003,6 +1017,11 @@ class F1Renderer:
             lx = self.display_width - logo.width - 2
             ly = (content_h - logo.height) // 2
             img.paste(logo, (lx, ly), logo)
+
+        # Fastest lap dot (sprint results only — same 3×3 purple dot as race result)
+        if self.show_fl_dot and entry.get("fastest_lap", False):
+            draw.rectangle([self.display_width - 4, 2, self.display_width - 2, 4],
+                           fill=self.fl_dot_color)
 
         # Bottom team color accent line
         draw.rectangle([self.accent_bar_width, content_h - 2,

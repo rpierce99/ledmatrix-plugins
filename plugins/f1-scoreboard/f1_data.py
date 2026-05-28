@@ -870,6 +870,7 @@ class F1DataSource:
                     constructor = sr.get("Constructor", {})
                     time_data = sr.get("Time", {})
 
+                    fastest = sr.get("FastestLap", {})
                     results.append({
                         "position": int(sr.get("position", 0)),
                         "points": float(sr.get("points", 0)),
@@ -885,6 +886,7 @@ class F1DataSource:
                         "laps": int(sr.get("laps", 0)),
                         "status": sr.get("status", ""),
                         "time": time_data.get("time", ""),
+                        "fastest_lap": fastest.get("rank", "") == "1",
                     })
 
                 circuit = race.get("Circuit", {})
