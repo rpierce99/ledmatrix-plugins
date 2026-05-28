@@ -414,9 +414,17 @@ class F1ScoreboardPlugin(BasePlugin):
                 self._scroll_manager.prepare_and_display(
                     "team_spotlight", [spotlight], separator)
 
+        # Round / season info (used by headers)
+        season = datetime.now(timezone.utc).year
+        round_num = self.data_source._get_latest_round(season)
+        total_rounds = len(self._calendar) if self._calendar else 24
+
         # Driver standings
         if self._driver_standings:
-            cards = [r.render_driver_standing(
+            header = r.render_standings_header(
+                "DRIVER STANDINGS", round_num=round_num,
+                total_rounds=total_rounds, season=season)
+            cards = [header] + [r.render_driver_standing(
                         e, is_live=is_live, live_session=live_sess)
                     for e in self._driver_standings]
             self._scroll_manager.prepare_and_display(
@@ -424,7 +432,10 @@ class F1ScoreboardPlugin(BasePlugin):
 
         # Constructor standings
         if self._constructor_standings:
-            cards = [r.render_constructor_standing(
+            header = r.render_standings_header(
+                "CONSTRUCTOR STANDINGS", round_num=round_num,
+                total_rounds=total_rounds, season=season)
+            cards = [header] + [r.render_constructor_standing(
                         e, is_live=is_live, live_session=live_sess)
                     for e in self._constructor_standings]
             self._scroll_manager.prepare_and_display(

@@ -195,6 +195,66 @@ class F1Renderer:
         draw.rectangle([bx, by, bx + bw, by + bh], fill=(80, 0, 0))
         draw.text((bx + 2, by + 1), label, font=self.fonts["small"], fill=(pulse, 60, 60))
 
+    # ─── Standings Section Header ──────────────────────────────────────
+
+    def render_standings_header(self, title: str, round_num: int = 0,
+                                 total_rounds: int = 24,
+                                 season: int = 2026) -> Image.Image:
+        """
+        Intro card shown before the driver or constructor standings scroll.
+        Shows title + season + round progress bar.
+
+        Layout:
+          Row 1: [F1 logo] [TITLE] (e.g. "DRIVER STANDINGS")
+          Row 2: [2026]  [Rd N of M]
+          Row 3: [season progress bar]
+        """
+        img = Image.new("RGBA", (self.display_width, self.display_height), (0, 0, 0, 255))
+        draw = ImageDraw.Draw(img)
+
+        # Dark background
+        draw.rectangle([0, 0, self.display_width - 1, self.display_height - 1], fill=(8, 8, 8))
+
+        # Red left accent
+        draw.rectangle([0, 0, 2, self.display_height - 1], fill=F1_RED)
+
+        x = 4
+        y = 2
+
+        # F1 logo
+        logo_h = min(10, self.display_height // 3)
+        f1_logo = self.logo_loader.get_f1_logo(max_height=logo_h, max_width=int(self.display_width * 0.12))
+        if f1_logo:
+            img.paste(f1_logo, (x, y), f1_logo)
+            x += f1_logo.width + 3
+
+        # Title (e.g. "DRIVER STANDINGS")
+        title_trunc = self._truncate(draw, title, self.fonts["detail"], self.display_width - x - 2)
+        self._draw_text_outlined(draw, (x, y), title_trunc, self.fonts["detail"], fill=(220, 220, 220))
+        y += self._th(draw, "A", self.fonts["detail"]) + 2
+
+        # Season year + round info
+        if round_num > 0:
+            year_text = str(season)
+            rd_text = f"Rd {round_num}/{total_rounds}"
+            self._draw_text_outlined(draw, (4, y), year_text, self.fonts["small"], fill=(100, 100, 100))
+            rd_x = self.display_width - self._tw(draw, rd_text, self.fonts["small"]) - 3
+            self._draw_text_outlined(draw, (rd_x, y), rd_text, self.fonts["small"], fill=(255, 180, 0))
+            y += self._th(draw, "A", self.fonts["small"]) + 2
+
+        # Season progress bar
+        if round_num > 0 and total_rounds > 0 and y + 3 < self.display_height:
+            bar_x0 = 4
+            bar_x1 = self.display_width - 4
+            bar_w = bar_x1 - bar_x0
+            bar_y = y
+            draw.rectangle([bar_x0, bar_y, bar_x1, bar_y + 2], fill=(30, 30, 30))
+            fill_w = int(bar_w * min(1.0, round_num / total_rounds))
+            if fill_w > 0:
+                draw.rectangle([bar_x0, bar_y, bar_x0 + fill_w, bar_y + 2], fill=F1_RED)
+
+        return img
+
     # ─── Driver Standings Card ─────────────────────────────────────────
 
     def render_driver_standing(self, entry: Dict,
@@ -255,10 +315,8 @@ class F1Renderer:
         if row2_y + 5 < content_h:
             team_disp = _team_short(cid)
             team_disp = self._truncate(draw, team_disp, self.fonts["small"], content_max_x - x)
-            tc = get_team_color(cid)
-            dim_tc = tuple(max(80, int(c * 0.75)) for c in tc)
             self._draw_text_outlined(draw, (x, row2_y), team_disp, self.fonts["small"],
-                                     fill=dim_tc, outline=(0, 0, 0))
+                                     fill=_team_color_bright(cid), outline=(0, 0, 0))
 
         # ── Stat zone: Points (row 1) + Wins/Poles (row 2) ────────
         pts_text = f"{int(entry.get('points', 0))}pt"
