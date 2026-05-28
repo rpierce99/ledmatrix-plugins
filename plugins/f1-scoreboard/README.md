@@ -12,6 +12,8 @@ Data is sourced from public ESPN F1 endpoints, Jolpica/Ergast, and OpenF1.
 ## Features
 
 - **Championship leaders card** — split view of the current driver and constructor leaders with team colors and win counts
+- **Driver championship battle card** — P1 vs P2 driver split card with gap in points, races remaining, and ALIVE / NEAR / WON closability status and progress bar
+- **Constructor championship battle card** — P1 vs P2 constructor split card with team logos, points gap, races remaining, and closability bar
 - **Driver standings** with championship points gap bars and team-color accents
 - **Constructor standings** with team logos, gap bars, and per-driver point split (`NOR 189 | PIA 145`)
 - **Favorite driver spotlight** — full card for your chosen driver: position, points, gap to leader, team color banner
@@ -108,6 +110,8 @@ Fine-tune which visual elements appear and how they look:
 | Key | Default | Description |
 |---|---|---|
 | `visual.championship_leaders.enabled` | `true` | Show the split leaders card at the start of the scroll |
+| `visual.championship_battle.enabled` | `true` | Show the driver P1 vs P2 title fight card with gap bar and ALIVE/NEAR/WON status |
+| `visual.constructor_battle.enabled` | `true` | Show the constructor P1 vs P2 title fight card with team logos and gap bar |
 | `visual.standings_header.enabled` | `true` | Show the F1-logo intro card before each standings section |
 | `visual.standings_header.show_round` | `true` | Include round number and season progress bar on the header card |
 | `visual.gap_bar.enabled` | `true` | Show the championship points gap bar on standing rows |

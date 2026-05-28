@@ -390,8 +390,8 @@ class F1ScoreboardPlugin(BasePlugin):
                 self._scroll_manager.prepare_and_display(
                     "championship_leaders", [leaders_card], separator)
 
-        # Championship battle card (P1 vs P2 title fight, follows leaders)
-        if len(self._driver_standings) >= 2:
+        # Driver championship battle card (P1 vs P2, follows leaders)
+        if r.show_championship_battle and len(self._driver_standings) >= 2:
             p1 = self._driver_standings[0]
             p2 = self._driver_standings[1]
             battle_card = r.render_championship_battle_card(
@@ -399,6 +399,16 @@ class F1ScoreboardPlugin(BasePlugin):
                 is_live=is_live, live_session=live_sess)
             self._scroll_manager.prepare_and_display(
                 "championship_battle", [battle_card], separator)
+
+        # Constructor championship battle card (P1 vs P2 constructor)
+        if r.show_constructor_battle and len(self._constructor_standings) >= 2:
+            cp1 = self._constructor_standings[0]
+            cp2 = self._constructor_standings[1]
+            con_battle = r.render_constructor_battle_card(
+                cp1, cp2, remaining_races=remaining_races,
+                is_live=is_live, live_session=live_sess)
+            self._scroll_manager.prepare_and_display(
+                "constructor_battle", [con_battle], separator)
 
         # Spotlight card for favorite driver (appears first in sequence)
         if self.favorite_driver and self._driver_standings:
@@ -668,6 +678,12 @@ class F1ScoreboardPlugin(BasePlugin):
             images.extend(
                 self._scroll_manager.get_vegas_items_for_mode(
                     "championship_battle"))
+
+        # Constructor championship battle card
+        if self._scroll_manager.is_mode_prepared("constructor_battle"):
+            images.extend(
+                self._scroll_manager.get_vegas_items_for_mode(
+                    "constructor_battle"))
 
         # Spotlight cards go first (most important, followed driver/team)
         for spotlight_key in ("driver_spotlight", "team_spotlight"):

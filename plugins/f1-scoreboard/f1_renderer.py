@@ -96,6 +96,12 @@ class F1Renderer:
         cl = vis.get("championship_leaders", {})
         self.show_championship_leaders = cl.get("enabled", True)
 
+        cb = vis.get("championship_battle", {})
+        self.show_championship_battle = cb.get("enabled", True)
+
+        ctb = vis.get("constructor_battle", {})
+        self.show_constructor_battle = ctb.get("enabled", True)
+
         rr = self.config.get("recent_races", {})
         self.show_position_delta = rr.get("show_position_delta", True)
         self.show_dnf_status = rr.get("show_dnf_status", True)
@@ -1635,6 +1641,152 @@ class F1Renderer:
                 draw.rectangle([bar_x0, bar_y, bar_x0 + fill_w, bar_y + bar_h - 1],
                                fill=bar_fill)
             # P1 team color accent at left edge of bar
+            draw.rectangle([bar_x0, bar_y, bar_x0 + 2, bar_y + bar_h - 1],
+                           fill=tuple(max(0, int(c * 0.9)) for c in p1_tc))
+
+        if is_live and live_session:
+            self._draw_live_badge(draw, live_session)
+
+        return img
+
+    def render_constructor_battle_card(
+            self, p1: Dict, p2: Dict,
+            remaining_races: int = 0,
+            is_live: bool = False, live_session: str = "") -> Image.Image:
+        """
+        Constructor championship title fight card.
+        Left half = P1 constructor (leader), right half = P2 (challenger).
+        Bottom: gap in points + races remaining + closability bar.
+        """
+        img = Image.new("RGBA", (self.display_width, self.display_height), (0, 0, 0, 255))
+        draw = ImageDraw.Draw(img)
+
+        p1_cid = p1.get("constructor_id", "")
+        p2_cid = p2.get("constructor_id", "")
+        p1_pts = int(p1.get("points", 0))
+        p2_pts = int(p2.get("points", 0))
+        gap = p1_pts - p2_pts
+
+        # Max points a constructor can score in one race (1-2 sweep + fastest lap)
+        max_catchable = remaining_races * 44
+
+        half_w = self.display_width // 2
+
+        # Background tints
+        p1_tc = get_team_color(p1_cid)
+        p2_tc = get_team_color(p2_cid)
+        draw.rectangle([0, 0, half_w - 1, self.display_height - 1],
+                       fill=tuple(max(0, int(c * 0.12)) for c in p1_tc))
+        draw.rectangle([half_w, 0, self.display_width - 1, self.display_height - 1],
+                       fill=tuple(max(0, int(c * 0.12)) for c in p2_tc))
+
+        # Accent bars: left edge P1, right edge P2
+        draw.rectangle([0, 0, 2, self.display_height - 1], fill=p1_tc)
+        draw.rectangle([self.display_width - 3, 0,
+                         self.display_width - 1, self.display_height - 1], fill=p2_tc)
+
+        # Center divider
+        draw.line([(half_w, 0), (half_w, self.display_height - 1)], fill=(40, 40, 40))
+
+        # "CONSTR" header label
+        hdr_y = 1
+        hdr_h = self._th(draw, "A", self.fonts["detail"]) + 1
+        constr_label = "CONSTR"
+        cl_w = self._tw(draw, constr_label, self.fonts["detail"])
+        draw.text(((self.display_width - cl_w) // 2, hdr_y),
+                  constr_label, font=self.fonts["detail"], fill=(80, 80, 80))
+
+        # Gap bar height (drawn at bottom)
+        bar_h = 3
+        content_y = hdr_y + hdr_h + 1
+        gap_row_h = self._th(draw, "A", self.fonts["small"])
+        bar_y = self.display_height - bar_h
+        gap_row_y = bar_y - gap_row_h - 1
+        content_h = gap_row_y - content_y - 1
+
+        logo_sz = max(8, content_h - 2)
+
+        # ── Left half: P1 constructor ──────────────────────────────
+        p1_logo = self.logo_loader.get_team_logo(p1_cid, logo_sz, logo_sz)
+        p1_dx = 4
+        if p1_logo:
+            ly = content_y + (content_h - p1_logo.height) // 2
+            img.paste(p1_logo, (p1_dx, ly), p1_logo)
+            p1_dx += p1_logo.width + 2
+
+        p1_name = _team_short(p1_cid)
+        p1_max_w = half_w - p1_dx - 3
+        name1_trunc = self._truncate(draw, p1_name, self.fonts["small"], p1_max_w)
+        self._draw_text_outlined(draw, (p1_dx, content_y), name1_trunc,
+                                 self.fonts["small"], fill=_team_color_bright(p1_cid))
+        pts_y1 = content_y + self._th(draw, name1_trunc, self.fonts["small"]) + 1
+        if pts_y1 + 4 < gap_row_y:
+            pts_str1 = f"{p1_pts}pt"
+            self._draw_text_outlined(draw, (p1_dx, pts_y1), pts_str1,
+                                     self.fonts["small"], fill=(255, 220, 50))
+
+        # ── Right half: P2 constructor (mirrored) ──────────────────
+        p2_logo = self.logo_loader.get_team_logo(p2_cid, logo_sz, logo_sz)
+        p2_logo_x = self.display_width - 3
+        if p2_logo:
+            p2_logo_x = self.display_width - p2_logo.width - 4
+            ly = content_y + (content_h - p2_logo.height) // 2
+            img.paste(p2_logo, (p2_logo_x, ly), p2_logo)
+
+        p2_name = _team_short(p2_cid)
+        p2_max_w = p2_logo_x - half_w - 4
+        name2_trunc = self._truncate(draw, p2_name, self.fonts["small"], p2_max_w)
+        name2_w = self._tw(draw, name2_trunc, self.fonts["small"])
+        name2_x = p2_logo_x - name2_w - 2
+        if name2_x < half_w + 3:
+            name2_x = half_w + 3
+        self._draw_text_outlined(draw, (name2_x, content_y), name2_trunc,
+                                 self.fonts["small"], fill=_team_color_bright(p2_cid))
+        pts_y2 = content_y + self._th(draw, name2_trunc, self.fonts["small"]) + 1
+        if pts_y2 + 4 < gap_row_y:
+            pts_str2 = f"{p2_pts}pt"
+            pts_w2 = self._tw(draw, pts_str2, self.fonts["small"])
+            self._draw_text_outlined(draw, (p2_logo_x - pts_w2 - 2, pts_y2),
+                                     pts_str2, self.fonts["small"], fill=(255, 220, 50))
+
+        # ── Gap row (center) ──────────────────────────────────────
+        gap_str = f"-{gap}pts" if gap >= 0 else f"+{abs(gap)}pts"
+        gap_w = self._tw(draw, gap_str, self.fonts["small"])
+        gap_x = (self.display_width - gap_w) // 2
+        draw.text((gap_x, gap_row_y), gap_str,
+                  font=self.fonts["small"], fill=(220, 220, 220))
+
+        if remaining_races > 0:
+            races_str = f"{remaining_races}L"
+            draw.text((4, gap_row_y), races_str,
+                      font=self.fonts["small"], fill=(100, 100, 100))
+
+        if max_catchable > 0:
+            if gap > max_catchable:
+                clinch_str = "WON"
+                clinch_color = (0, 220, 80)
+            elif gap > max_catchable * 0.75:
+                clinch_str = "NEAR"
+                clinch_color = (255, 180, 0)
+            else:
+                clinch_str = "ALIVE"
+                clinch_color = (180, 180, 180)
+            clinch_w = self._tw(draw, clinch_str, self.fonts["small"])
+            draw.text((self.display_width - clinch_w - 4, gap_row_y),
+                      clinch_str, font=self.fonts["small"], fill=clinch_color)
+
+        # ── Closability gap bar ───────────────────────────────────
+        bar_x0 = 3
+        bar_x1 = self.display_width - 4
+        bar_w = bar_x1 - bar_x0
+        draw.rectangle([bar_x0, bar_y, bar_x1, bar_y + bar_h - 1], fill=(25, 25, 25))
+        if max_catchable > 0:
+            fill_ratio = min(1.0, gap / max_catchable)
+            fill_w = int(bar_w * fill_ratio)
+            if fill_w > 0:
+                bar_fill = tuple(max(0, int(c * 0.7)) for c in p2_tc)
+                draw.rectangle([bar_x0, bar_y, bar_x0 + fill_w, bar_y + bar_h - 1],
+                               fill=bar_fill)
             draw.rectangle([bar_x0, bar_y, bar_x0 + 2, bar_y + bar_h - 1],
                            fill=tuple(max(0, int(c * 0.9)) for c in p1_tc))
 

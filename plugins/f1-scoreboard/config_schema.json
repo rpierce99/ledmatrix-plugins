@@ -470,9 +470,39 @@
           },
           "x-propertyOrder": ["enabled"],
           "additionalProperties": false
+        },
+        "championship_battle": {
+          "type": "object",
+          "title": "Driver Championship Battle Card",
+          "description": "Split card showing P1 vs P2 driver title fight with gap bar and ALIVE/NEAR/WON status",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "title": "Enabled",
+              "default": true,
+              "description": "Show the driver championship battle card in the scroll sequence"
+            }
+          },
+          "x-propertyOrder": ["enabled"],
+          "additionalProperties": false
+        },
+        "constructor_battle": {
+          "type": "object",
+          "title": "Constructor Championship Battle Card",
+          "description": "Split card showing P1 vs P2 constructor title fight with team logos, gap bar, and ALIVE/NEAR/WON status",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "title": "Enabled",
+              "default": true,
+              "description": "Show the constructor championship battle card in the scroll sequence"
+            }
+          },
+          "x-propertyOrder": ["enabled"],
+          "additionalProperties": false
         }
       },
-      "x-propertyOrder": ["fastest_lap_dot", "gap_bar", "standings_header", "circuit_map", "championship_leaders"],
+      "x-propertyOrder": ["fastest_lap_dot", "gap_bar", "standings_header", "circuit_map", "championship_leaders", "championship_battle", "constructor_battle"],
       "additionalProperties": false
     },
     "customization": {
