@@ -620,6 +620,134 @@ class F1Renderer:
 
         return img
 
+    # ─── Favorite Driver Race Highlight Card ───────────────────────────
+
+    def render_favorite_race_card(self, race: Dict, result: Dict) -> Image.Image:
+        """
+        Full-width single-driver card shown when the favorite driver finishes
+        outside the podium. Shows position, driver code, gap, delta, and points.
+        """
+        img = Image.new("RGBA", (self.display_width, self.display_height), (0, 0, 0, 255))
+        draw = ImageDraw.Draw(img)
+
+        cid = result.get("constructor_id", "")
+        pos = result.get("position", 0)
+        code = result.get("code", "???")
+        tc = get_team_color(cid)
+        tc_bright = _team_color_bright(cid)
+
+        # Subtle team background tint
+        tint = tuple(max(0, int(c * 0.10)) for c in tc)
+        draw.rectangle([0, 0, self.display_width - 1, self.display_height - 1], fill=tint)
+
+        # ── Header (same style as podium card) ─────────────────────────
+        header_h = self._th(draw, "A", self.fonts["detail"]) + 1
+        draw.rectangle([0, 0, self.display_width - 1, header_h + 1], fill=(20, 0, 0))
+        race_name = race.get("race_name", "Grand Prix").replace("Grand Prix", "GP")
+        name_trunc = self._truncate(draw, race_name, self.fonts["detail"],
+                                    self.display_width - 42)
+        self._draw_text_outlined(draw, (3, 1), name_trunc, self.fonts["detail"], fill=F1_RED)
+        if race.get("date"):
+            try:
+                raw = race["date"]
+                dt = self._to_local_dt(raw + "T12:00:00Z" if "T" not in raw else raw)
+                date_str = dt.strftime("%b %d").upper()
+                dw = self._tw(draw, date_str, self.fonts["small"])
+                self._draw_text_outlined(draw, (self.display_width - dw - 2, 1),
+                                         date_str, self.fonts["small"], fill=(110, 110, 110))
+            except (ValueError, TypeError):
+                pass
+
+        self._draw_accent_bar(draw, cid)
+        x = self.accent_bar_width + 3
+        content_y = header_h + 3
+
+        # ── Team logo (right side) ──────────────────────────────────────
+        logo = self.logo_loader.get_team_logo(
+            cid,
+            max_height=self.display_height - header_h - 4,
+            max_width=int(self.display_width * 0.20))
+        logo_left = self.display_width
+        if logo:
+            logo_x = self.display_width - logo.width - 3
+            logo_y = header_h + (self.display_height - header_h - logo.height) // 2
+            img.paste(logo, (logo_x, logo_y), logo)
+            logo_left = logo_x - 3
+
+        # ── Row 1: position + driver code ──────────────────────────────
+        pos_label = f"P{pos}"
+        pos_color = (180, 180, 180)
+        self._draw_text_outlined(draw, (x, content_y), pos_label,
+                                 self.fonts["position"], fill=pos_color)
+        pos_w = self._tw(draw, pos_label, self.fonts["position"])
+
+        code_x = x + pos_w + 4
+        code_trunc = self._truncate(draw, code, self.fonts["position"],
+                                    logo_left - code_x - 40)
+        self._draw_text_outlined(draw, (code_x, content_y), code_trunc,
+                                 self.fonts["position"], fill=tc_bright)
+
+        # Gap / status (right-aligned before logo)
+        status = result.get("status", "")
+        if self.show_dnf_status and status and status not in ("Finished", ""):
+            if status.startswith("+") and "Lap" in status:
+                parts = status.split()
+                gap_str = f"+{parts[0].lstrip('+')}L"
+                gap_color = (180, 120, 40)
+            else:
+                gap_str = "RET"
+                gap_color = (180, 60, 60)
+        else:
+            gap_str = result.get("time", result.get("gap", ""))
+            gap_color = (255, 190, 50)
+
+        if gap_str:
+            code_right = code_x + self._tw(draw, code_trunc, self.fonts["position"]) + 4
+            avail_gap = logo_left - code_right
+            if avail_gap > 18:
+                gap_trunc = self._truncate(draw, gap_str, self.fonts["small"], avail_gap)
+                g_x = logo_left - self._tw(draw, gap_trunc, self.fonts["small"])
+                if g_x > code_right:
+                    draw.text((g_x, content_y + 2), gap_trunc,
+                              font=self.fonts["small"], fill=gap_color)
+
+        # ── Row 2: position delta + points scored ──────────────────────
+        row2_y = content_y + self._th(draw, pos_label, self.fonts["position"]) + 2
+        if row2_y + 4 < self.display_height - 2:
+            cur_x = x
+            # Position delta
+            grid_pos = result.get("grid", 0)
+            if self.show_position_delta and grid_pos > 0:
+                delta = grid_pos - pos
+                if delta > 0:
+                    delta_str, delta_color = f"+{delta}", (0, 210, 80)
+                elif delta < 0:
+                    delta_str, delta_color = str(delta), (220, 50, 50)
+                else:
+                    delta_str, delta_color = "=0", (120, 120, 120)
+                draw.text((cur_x, row2_y), delta_str,
+                          font=self.fonts["small"], fill=delta_color)
+                cur_x += self._tw(draw, delta_str, self.fonts["small"]) + 4
+
+            # Points scored this race
+            pts = result.get("points", 0)
+            if pts > 0:
+                pts_str = f"+{int(pts)}pts"
+                pts_color = (255, 220, 50)
+            else:
+                pts_str = "0pts"
+                pts_color = (80, 80, 80)
+            if cur_x + self._tw(draw, pts_str, self.fonts["small"]) < logo_left:
+                draw.text((cur_x, row2_y), pts_str,
+                          font=self.fonts["small"], fill=pts_color)
+
+        # Team color bottom bar
+        draw.rectangle([0, self.display_height - 2,
+                         self.display_width - 1, self.display_height - 1],
+                        fill=tuple(max(0, int(c * 0.6)) for c in tc))
+
+        return img
+
     # ─── Shared Driver Row ─────────────────────────────────────────────
 
     def _render_driver_row(self, entry: Dict, time_key: str = "",

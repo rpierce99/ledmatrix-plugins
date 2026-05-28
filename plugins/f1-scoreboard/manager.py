@@ -452,10 +452,17 @@ class F1ScoreboardPlugin(BasePlugin):
             self._scroll_manager.prepare_and_display(
                 "constructor_standings", cards, separator)
 
-        # Recent races
+        # Recent races (podium card + optional favorite highlight card)
         if self._recent_races:
-            cards = [r.render_race_result(race)
-                    for race in self._recent_races]
+            cards = []
+            for race in self._recent_races:
+                cards.append(r.render_race_result(race))
+                # If favorite outside podium: results[3] is the appended favorite
+                results = race.get("results", [])
+                if self.favorite_driver and len(results) > 3:
+                    fav = results[3]
+                    if fav.get("code", "").upper() == self.favorite_driver:
+                        cards.append(r.render_favorite_race_card(race, fav))
             self._scroll_manager.prepare_and_display(
                 "recent_races", cards, separator)
 

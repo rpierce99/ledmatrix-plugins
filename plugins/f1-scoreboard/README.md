@@ -16,7 +16,7 @@ Data is sourced from public ESPN F1 endpoints, Jolpica/Ergast, and OpenF1.
 - **Constructor standings** with team logos, gap bars, and per-driver point split (`NOR 189 | PIA 145`)
 - **Favorite driver spotlight** — full card for your chosen driver: position, points, gap to leader, team color banner
 - **Favorite team spotlight** — team logo, both drivers, constructor position and points
-- **Recent race results** — podium cards with winner, P2, P3, gap times, fastest-lap dot, positions-gained delta (`+N`/`-N`), and retirement (`RET`) indicators
+- **Recent race results** — podium cards with winner, P2, P3, gap times, fastest-lap dot, positions-gained delta (`+N`/`-N`), and retirement (`RET`) indicators; plus a dedicated **favorite driver highlight card** showing their position, gap, delta, and points scored when they finish outside the top 3
 - **Upcoming race card** — circuit name, country, date, session times, and circuit layout map art
 - **Qualifying results** — Q1 / Q2 / Q3 breakdown with gap-to-pole times
 - **Free practice standings** — FP1, FP2, FP3 with lap times
