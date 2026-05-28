@@ -498,6 +498,18 @@ class F1ScoreboardPlugin(BasePlugin):
                 self._scroll_manager.prepare_and_display(
                     "team_spotlight", [spotlight], separator)
 
+        # Build last-race points lookup (driver code → points scored in most recent race)
+        last_race_pts_map: Dict[str, int] = {}
+        last_race_con_pts_map: Dict[str, int] = {}
+        if self._recent_races:
+            for res in self._recent_races[0].get("all_results", []):
+                code = res.get("code", "").upper()
+                cid_res = res.get("constructor_id", "")
+                pts = int(res.get("points", 0))
+                last_race_pts_map[code] = pts
+                last_race_con_pts_map[cid_res] = (
+                    last_race_con_pts_map.get(cid_res, 0) + pts)
+
         # Driver standings
         if self._driver_standings:
             cards = []
@@ -510,9 +522,12 @@ class F1ScoreboardPlugin(BasePlugin):
                 form_card = r.render_driver_form_card(
                     self._driver_standings[:8], self._recent_races)
                 cards.append(form_card)
-            cards += [r.render_driver_standing(
-                        e, is_live=is_live, live_session=live_sess)
-                      for e in self._driver_standings]
+            for e in self._driver_standings:
+                enriched = dict(e)
+                enriched["last_race_pts"] = last_race_pts_map.get(
+                    e.get("code", "").upper(), 0)
+                cards.append(r.render_driver_standing(
+                    enriched, is_live=is_live, live_session=live_sess))
             self._scroll_manager.prepare_and_display(
                 "driver_standings", cards, separator)
 
@@ -531,6 +546,7 @@ class F1ScoreboardPlugin(BasePlugin):
                     key=lambda d: d.get("position", 99))
                 entry = dict(e)
                 entry["team_drivers"] = team_drivers
+                entry["last_race_pts"] = last_race_con_pts_map.get(cid, 0)
                 cards.append(r.render_constructor_standing(
                     entry, is_live=is_live, live_session=live_sess))
             self._scroll_manager.prepare_and_display(

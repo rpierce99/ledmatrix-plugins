@@ -115,6 +115,9 @@ class F1Renderer:
         up = self.config.get("upcoming", {})
         self.show_circuit_info = up.get("show_circuit_info", True)
 
+        lrp = vis.get("last_race_points", {})
+        self.show_last_race_pts = lrp.get("enabled", True)
+
         self.fonts = self._load_fonts()
 
     def _load_fonts(self) -> Dict[str, Any]:
@@ -372,6 +375,22 @@ class F1Renderer:
             self._draw_text_outlined(draw, (stat_x, row2_stat_y), wp_text,
                                      self.fonts["small"], fill=(160, 160, 160))
 
+        # ── Stat zone row 3: Last race points ─────────────────────
+        if self.show_last_race_pts:
+            last_race_pts = int(entry.get("last_race_pts", 0))
+            if last_race_pts > 0:
+                lrp_str = f"+{last_race_pts}"
+                if last_race_pts >= 18:
+                    lrp_color = (255, 200, 50)   # gold — podium/win points
+                elif last_race_pts >= 10:
+                    lrp_color = (100, 210, 100)  # green — solid points
+                else:
+                    lrp_color = (120, 120, 120)  # grey — small haul
+                row3_stat_y = row2_stat_y + self._th(draw, wp_text, self.fonts["small"]) + 2
+                if row3_stat_y + 4 < content_h:
+                    draw.text((stat_x, row3_stat_y), lrp_str,
+                              font=self.fonts["small"], fill=lrp_color)
+
         if is_live and live_session:
             self._draw_live_badge(draw, live_session)
 
@@ -447,6 +466,18 @@ class F1Renderer:
             if wins_y + 4 < content_h:
                 self._draw_text_outlined(draw, (stat_x, wins_y), f"{wins}W",
                                          self.fonts["small"], fill=(160, 160, 160))
+
+            # Last race points for this constructor (sum of both drivers)
+            if self.show_last_race_pts:
+                last_race_pts = int(entry.get("last_race_pts", 0))
+                if last_race_pts > 0:
+                    lrp_str = f"+{last_race_pts}"
+                    lrp_color = (255, 200, 50) if last_race_pts >= 30 else (
+                                 (100, 210, 100) if last_race_pts >= 15 else (120, 120, 120))
+                    lrp_y = wins_y + self._th(draw, "A", self.fonts["small"]) + 2
+                    if lrp_y + 4 < content_h:
+                        draw.text((stat_x, lrp_y), lrp_str,
+                                  font=self.fonts["small"], fill=lrp_color)
 
             # ── Row 3: Driver points split ────────────────────────────
             if self.show_driver_split:

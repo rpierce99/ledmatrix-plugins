@@ -15,8 +15,8 @@ Data is sourced from public ESPN F1 endpoints, Jolpica/Ergast, and OpenF1.
 - **Driver championship battle card** — P1 vs P2 driver split card with gap in points, races remaining, ALIVE / NEAR / WON closability status, progress bar, and a last-race gap trend indicator (`+N` red = leader extending, `-N` green = challenger closing)
 - **Constructor championship battle card** — P1 vs P2 constructor split card with team logos, points gap, races remaining, closability bar, and last-race gap trend indicator
 - **Driver form guide card** — compact 2-column grid showing the last N race positions per driver as colored boxes (gold P1, silver P2, bronze P3, green points-finish, red DNF)
-- **Driver standings** with championship points gap bars and team-color accents
-- **Constructor standings** with team logos, gap bars, and per-driver point split (`NOR 189 | PIA 145`)
+- **Driver standings** with championship points gap bars, team-color accents, and last-race `+N` points indicator (gold/green/grey by magnitude)
+- **Constructor standings** with team logos, gap bars, per-driver point split (`NOR 189 | PIA 145`), and last-race combined points haul indicator
 - **Favorite driver spotlight** — full card for your chosen driver: position, points, gap to leader, team color banner
 - **Favorite team spotlight** — team logo, both drivers, constructor position and points
 - **Recent race results** — starts with a **winners summary card** listing each recent race winner at a glance; followed by podium cards with winner, P2, P3, gap times, fastest-lap dot, positions-gained delta (`+N`/`-N`), and retirement (`RET`) indicators; plus a **favorite driver highlight card**, a **race gap chart** (team-colored horizontal bars proportional to gap from winner), and a **points haul card** (team-colored bars) per race
@@ -126,6 +126,7 @@ Fine-tune which visual elements appear and how they look:
 | `visual.fastest_lap_dot.color` | `[180, 0, 255]` | RGB color of the fastest-lap dot (default: purple) |
 | `visual.circuit_map.enabled` | `true` | Show the circuit layout art on the upcoming race card |
 | `visual.driver_form.enabled` | `true` | Show the driver form guide (recent race position boxes) before driver standings |
+| `visual.last_race_points.enabled` | `true` | Show `+N` points scored in the most recent race on each driver and constructor standings card (gold = podium, green = solid, grey = small haul) |
 
 **Example — change fastest lap dot to magenta and disable circuit maps:**
 

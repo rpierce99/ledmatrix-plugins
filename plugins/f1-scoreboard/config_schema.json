@@ -555,9 +555,24 @@
           },
           "x-propertyOrder": ["enabled"],
           "additionalProperties": false
+        },
+        "last_race_points": {
+          "type": "object",
+          "title": "Last Race Points Indicator",
+          "description": "Shows +N points scored in the most recent race on each standings card (gold=podium points, green=solid haul, grey=small haul)",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "title": "Enabled",
+              "default": true,
+              "description": "Show last-race points (+N) in the stat zone of each driver and constructor standings card"
+            }
+          },
+          "x-propertyOrder": ["enabled"],
+          "additionalProperties": false
         }
       },
-      "x-propertyOrder": ["fastest_lap_dot", "gap_bar", "standings_header", "circuit_map", "championship_leaders", "championship_battle", "constructor_battle", "driver_form"],
+      "x-propertyOrder": ["fastest_lap_dot", "gap_bar", "standings_header", "circuit_map", "championship_leaders", "championship_battle", "constructor_battle", "driver_form", "last_race_points"],
       "additionalProperties": false
     },
     "customization": {
