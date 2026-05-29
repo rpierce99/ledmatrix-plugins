@@ -10,7 +10,7 @@ Uses three data sources:
 
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
@@ -332,9 +332,8 @@ class F1DataSource:
             if event_start is None or event_end is None:
                 continue
 
-            # Add buffer: event ends 4h after last session start
-            event_end_buffered = event_end.replace(
-                hour=min(23, event_end.hour + 4))
+            # Add buffer: event ends 4h after last session start (timedelta handles day rollover)
+            event_end_buffered = event_end + timedelta(hours=4)
 
             if event_start <= now <= event_end_buffered:
                 is_race_weekend = True
@@ -355,9 +354,7 @@ class F1DataSource:
                         continue
 
                     duration_min = SESSION_DURATIONS.get(abbr, 90)
-                    session_end = session_start.replace(
-                        minute=session_start.minute + duration_min % 60,
-                        hour=session_start.hour + duration_min // 60)
+                    session_end = session_start + timedelta(minutes=duration_min)
 
                     if session_start <= now <= session_end:
                         self._live_session_type = abbr
@@ -1103,6 +1100,10 @@ class F1DataSource:
         return parsed
 
     # ─── Helpers ───────────────────────────────────────────────────────
+
+    def get_latest_round(self, season: int) -> int:
+        """Public accessor for the latest completed round number."""
+        return self._get_latest_round(season)
 
     def _get_latest_round(self, season: int) -> int:
         """Get the latest completed round number for a season (memoized)."""

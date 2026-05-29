@@ -400,7 +400,7 @@ class WeatherPlugin(BasePlugin):
         city = self.location.get('city', 'Dallas')
         state = self.location.get('state', 'Texas')
         country = self.location.get('country', 'US')
-        cache_key = f"{self.plugin_id}:{city}:weather"
+        cache_key = f"{self.plugin_id}:{city}:{state}:{country}:{self.units}:weather"
         cached_data = self.cache_manager.get(cache_key, max_age=self.update_interval)
         if cached_data:
             self.weather_data = cached_data.get('current')
@@ -443,9 +443,9 @@ class WeatherPlugin(BasePlugin):
         results = response.json().get('results', [])
         if not results:
             self._last_error_hint = f"Unknown: {city}"
-            self.logger.error(f"Could not find coordinates for {city}, {state}, {country}")
-            self.last_update = time.time()
-            return
+            msg = f"Could not find coordinates for {city}, {state}, {country}"
+            self.logger.error(msg)
+            raise ValueError(msg)
 
         # Pick the best result by matching country code
         country_upper = country.upper() if country else ''
@@ -528,6 +528,7 @@ class WeatherPlugin(BasePlugin):
         self.forecast_data = {
             'lat': lat,
             'lon': lon,
+            'timezone': om_data.get('timezone', 'UTC'),
             'timezone_offset': tz_offset,
             'current': {
                 'sunrise': daily_today.get('sunrise'),
@@ -538,8 +539,8 @@ class WeatherPlugin(BasePlugin):
             'alerts': [],
         }
 
-        # Step C: NWS alerts (US-only, silent skip for non-US / failures)
-        alerts = self._fetch_nws_alerts(lat, lon)
+        # Step C: NWS alerts (US-only)
+        alerts = self._fetch_nws_alerts(lat, lon) if country_upper == 'US' else []
         self.weather_data['alerts'] = alerts
         self.forecast_data['alerts'] = alerts
 
@@ -674,25 +675,32 @@ class WeatherPlugin(BasePlugin):
         if not forecast_data:
             return
 
+        import zoneinfo
+        tz_name = forecast_data.get('timezone', 'UTC')
+        try:
+            location_tz = zoneinfo.ZoneInfo(tz_name)
+        except Exception:
+            location_tz = zoneinfo.ZoneInfo('UTC')
+
         # Process hourly forecast (next 5 hours, excluding current hour)
         hourly_list = forecast_data.get('hourly', [])
-        
+
         # Filter out the current hour - get current timestamp rounded down to the hour
         current_time = time.time()
         current_hour_timestamp = int(current_time // 3600) * 3600  # Round down to nearest hour
-        
+
         # Filter out entries that are in the current hour or past
         future_hourly = [
             hour_data for hour_data in hourly_list
             if hour_data.get('dt', 0) > current_hour_timestamp
         ]
-        
+
         # Get next 5 hours
         hourly_list = future_hourly[:5]
         self.hourly_forecast = []
-        
+
         for hour_data in hourly_list:
-            dt = datetime.fromtimestamp(hour_data['dt'])
+            dt = datetime.fromtimestamp(hour_data['dt'], tz=location_tz)
             temp = round(hour_data['temp'])
             condition = hour_data['weather'][0]['main']
             icon_code = hour_data['weather'][0]['icon']

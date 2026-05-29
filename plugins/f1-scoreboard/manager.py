@@ -192,7 +192,7 @@ class F1ScoreboardPlugin(BasePlugin):
                     self.logger.info(
                         "LIVE session detected: %s", self._live_session)
             except Exception as e:
-                self.logger.debug("Live check error: %s", e)
+                self.logger.warning("Live check error: %s", e, exc_info=True)
 
         if now - self._last_update < self._update_interval:
             return
@@ -424,7 +424,7 @@ class F1ScoreboardPlugin(BasePlugin):
 
         # Round / season info (used by headers and battle card)
         season = datetime.now(timezone.utc).year
-        round_num = self.data_source._get_latest_round(season)
+        round_num = self.data_source.get_latest_round(season)
         total_rounds = len(self._calendar) if self._calendar else 24
         remaining_races = max(0, total_rounds - round_num)
 

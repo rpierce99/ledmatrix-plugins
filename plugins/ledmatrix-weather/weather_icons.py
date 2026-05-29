@@ -87,7 +87,7 @@ class WeatherIcons:
         0: "Clear", 1: "Clear", 2: "Partly Cloudy", 3: "Overcast",
         45: "Fog", 48: "Fog",
         51: "Drizzle", 53: "Drizzle", 55: "Drizzle", 56: "Drizzle", 57: "Drizzle",
-        61: "Rain", 63: "Rain", 65: "Rain", 66: "Rain", 67: "Rain",
+        61: "Rain", 63: "Rain", 65: "Rain", 66: "Freezing Rain", 67: "Freezing Rain",
         71: "Snow", 73: "Snow", 75: "Snow", 77: "Snow",
         80: "Showers", 81: "Showers", 82: "Showers",
         85: "Snow Showers", 86: "Snow Showers",
