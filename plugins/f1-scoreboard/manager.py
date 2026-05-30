@@ -81,6 +81,11 @@ class F1ScoreboardPlugin(BasePlugin):
         # Data state
         self._driver_standings: List[Dict] = []
         self._constructor_standings: List[Dict] = []
+        # Pre-filter P1/P2 used for battle cards (unaffected by top_n setting)
+        self._driver_battle_p1: Optional[Dict] = None
+        self._driver_battle_p2: Optional[Dict] = None
+        self._constructor_battle_p1: Optional[Dict] = None
+        self._constructor_battle_p2: Optional[Dict] = None
         self._recent_races: List[Dict] = []
         self._upcoming_race: Optional[Dict] = None
         self._qualifying: Optional[Dict] = None
@@ -89,9 +94,17 @@ class F1ScoreboardPlugin(BasePlugin):
         self._calendar: List[Dict] = []
         self._pole_positions: Dict[str, int] = {}
 
+        # Live session state
+        self._is_live: bool = False
+        self._live_session: str = ""
+        self._is_race_weekend: bool = False
+
         # Timing
         self._last_update = 0
+        self._last_live_check = 0
+        self._live_check_interval = 120  # check live status every 2 min
         self._update_interval = config.get("update_interval", 3600)
+        self._base_update_interval = self._update_interval
 
         # Display state tracking (for dynamic duration)
         self._current_display_mode: Optional[str] = None
@@ -101,8 +114,8 @@ class F1ScoreboardPlugin(BasePlugin):
 
         # Preload logos
         self.logo_loader.preload_all_teams(
-            self.renderer.logo_max_height,
-            self.renderer.logo_max_width)
+            self.renderer.logo_max,
+            self.renderer.logo_max)
 
         self.logger.info("F1 Scoreboard initialized with %d modes: %s",
                         len(self.modes), ", ".join(self.modes))
@@ -157,10 +170,35 @@ class F1ScoreboardPlugin(BasePlugin):
     def update(self):
         """Fetch and update all F1 data from APIs."""
         now = time.time()
+
+        # Check live session status more frequently than full data update
+        if now - self._last_live_check >= self._live_check_interval:
+            self._last_live_check = now
+            try:
+                self._is_live, self._live_session = (
+                    self.data_source.detect_live_session())
+                self._is_race_weekend = (
+                    self.data_source.get_is_race_weekend())
+
+                # Dynamic update interval: faster during race weekends
+                if self._is_live:
+                    self._update_interval = 300   # 5 min when live
+                elif self._is_race_weekend:
+                    self._update_interval = 600   # 10 min during weekend
+                else:
+                    self._update_interval = self._base_update_interval
+
+                if self._is_live:
+                    self.logger.info(
+                        "LIVE session detected: %s", self._live_session)
+            except Exception as e:
+                self.logger.warning("Live check error: %s", e, exc_info=True)
+
         if now - self._last_update < self._update_interval:
             return
 
-        self.logger.info("Updating F1 data...")
+        self.logger.info("Updating F1 data (live=%s, weekend=%s)...",
+                        self._is_live, self._is_race_weekend)
         self._last_update = now
 
         for step in (self._update_standings,
@@ -187,12 +225,21 @@ class F1ScoreboardPlugin(BasePlugin):
                 self._pole_positions = (
                     self.data_source.calculate_pole_positions())
 
-                # Shallow copy entries before adding poles to avoid
+                # Shallow copy entries before adding poles/gaps to avoid
                 # mutating the cached standings dicts
                 standings = [dict(e) for e in standings]
                 for entry in standings:
                     code = entry.get("code", "")
                     entry["poles"] = self._pole_positions.get(code, 0)
+
+                # Annotate with championship gap data
+                standings = self.data_source.get_championship_gaps(standings)
+
+                # Save pre-filter P1/P2 for battle card (not affected by top_n)
+                if len(standings) >= 1:
+                    self._driver_battle_p1 = standings[0]
+                if len(standings) >= 2:
+                    self._driver_battle_p2 = standings[1]
 
                 # Apply favorite filter
                 top_n = self.config.get(
@@ -210,6 +257,15 @@ class F1ScoreboardPlugin(BasePlugin):
         if "f1_constructor_standings" in self.modes:
             standings = self.data_source.fetch_constructor_standings()
             if standings:
+                # Annotate with championship gap data
+                standings = self.data_source.get_championship_gaps(standings)
+
+                # Save pre-filter P1/P2 for battle card (not affected by top_n)
+                if len(standings) >= 1:
+                    self._constructor_battle_p1 = standings[0]
+                if len(standings) >= 2:
+                    self._constructor_battle_p2 = standings[1]
+
                 top_n = self.config.get(
                     "constructor_standings", {}).get("top_n", 10)
                 always_show = self.config.get(
@@ -243,6 +299,8 @@ class F1ScoreboardPlugin(BasePlugin):
             for race in races:
                 race_copy = dict(race)
                 results = race.get("results", [])
+                # Preserve full results for the points haul card
+                race_copy["all_results"] = results
                 race_copy["results"] = self.data_source.apply_favorite_filter(
                     results, top_finishers,
                     favorite_driver=self.favorite_driver,
@@ -325,31 +383,201 @@ class F1ScoreboardPlugin(BasePlugin):
         if calendar:
             self._calendar = calendar
 
+    # ─── Gap Trend Helper ──────────────────────────────────────────────
+
+    def _compute_race_gap_trend(self, code1: str, code2: str,
+                                 use_constructor: bool = False) -> int:
+        """
+        Return points delta (code1 - code2) from the most recent race.
+        Positive = code1 extended its lead; negative = code2 is closing.
+        Returns 0 if data is unavailable.
+        """
+        if not self._recent_races:
+            return 0
+        all_res = self._recent_races[0].get("all_results", [])
+        if use_constructor:
+            pts1 = sum(e.get("points", 0) for e in all_res
+                       if e.get("constructor_id", "") == code1)
+            pts2 = sum(e.get("points", 0) for e in all_res
+                       if e.get("constructor_id", "") == code2)
+            if pts1 == 0 and pts2 == 0:
+                return 0
+        else:
+            pts1 = next(
+                (e.get("points", 0) for e in all_res
+                 if e.get("code", "").upper() == code1.upper()), None)
+            pts2 = next(
+                (e.get("points", 0) for e in all_res
+                 if e.get("code", "").upper() == code2.upper()), None)
+            if pts1 is None or pts2 is None:
+                return 0
+        return int(pts1 - pts2)
+
     # ─── Scroll Content Preparation ────────────────────────────────────
 
     def _prepare_scroll_content(self):
         """Pre-render all scroll mode content."""
         r = self._scroll_renderer
         separator = r.render_f1_separator()
+        is_live = self._is_live
+        live_sess = self._live_session
+
+        # Round / season info (used by headers and battle card)
+        season = datetime.now(timezone.utc).year
+        round_num = self.data_source.get_latest_round(season)
+        total_rounds = len(self._calendar) if self._calendar else 24
+        remaining_races = max(0, total_rounds - round_num)
+
+        # Championship leaders intro card (very first in Vegas scroll)
+        if r.show_championship_leaders and self._driver_standings and self._constructor_standings:
+            drv_leader = self._driver_standings[0] if self._driver_standings else None
+            con_leader = self._constructor_standings[0] if self._constructor_standings else None
+            if drv_leader and con_leader:
+                leaders_card = r.render_championship_leaders(
+                    drv_leader, con_leader,
+                    is_live=is_live, live_session=live_sess)
+                self._scroll_manager.prepare_and_display(
+                    "championship_leaders", [leaders_card], separator)
+
+        # Driver championship battle card (P1 vs P2, follows leaders)
+        # Uses pre-filter standings so top_n config doesn't affect P1/P2 selection
+        if r.show_championship_battle and self._driver_battle_p1 and self._driver_battle_p2:
+            p1 = self._driver_battle_p1
+            p2 = self._driver_battle_p2
+            gap_trend = self._compute_race_gap_trend(
+                p1.get("code", ""), p2.get("code", ""))
+            battle_card = r.render_championship_battle_card(
+                p1, p2, remaining_races=remaining_races,
+                gap_trend=gap_trend,
+                is_live=is_live, live_session=live_sess)
+            self._scroll_manager.prepare_and_display(
+                "championship_battle", [battle_card], separator)
+
+        # Constructor championship battle card (P1 vs P2 constructor)
+        if r.show_constructor_battle and self._constructor_battle_p1 and self._constructor_battle_p2:
+            cp1 = self._constructor_battle_p1
+            cp2 = self._constructor_battle_p2
+            con_gap_trend = self._compute_race_gap_trend(
+                cp1.get("constructor_id", ""), cp2.get("constructor_id", ""),
+                use_constructor=True)
+            con_battle = r.render_constructor_battle_card(
+                cp1, cp2, remaining_races=remaining_races,
+                gap_trend=con_gap_trend,
+                is_live=is_live, live_session=live_sess)
+            self._scroll_manager.prepare_and_display(
+                "constructor_battle", [con_battle], separator)
+
+        # Spotlight card for favorite driver (appears first in sequence)
+        if self.favorite_driver and self._driver_standings:
+            fav_entry = next(
+                (e for e in self._driver_standings
+                 if e.get("code", "").upper() == self.favorite_driver),
+                None)
+            if fav_entry:
+                spotlight = r.render_favorite_driver_spotlight(
+                    fav_entry, is_live=is_live, live_session=live_sess,
+                    recent_races=self._recent_races)
+                self._scroll_manager.prepare_and_display(
+                    "driver_spotlight", [spotlight], separator)
+
+        # Spotlight card for favorite team
+        if self.favorite_team and self._constructor_standings:
+            fav_team = next(
+                (e for e in self._constructor_standings
+                 if e.get("constructor_id", "") == self.favorite_team),
+                None)
+            if fav_team:
+                # Also find team drivers in driver standings
+                team_drivers = [
+                    e for e in self._driver_standings
+                    if e.get("constructor_id", "") == self.favorite_team
+                ] if self._driver_standings else []
+                spotlight = r.render_favorite_team_spotlight(
+                    fav_team, driver_entries=team_drivers,
+                    is_live=is_live, live_session=live_sess)
+                self._scroll_manager.prepare_and_display(
+                    "team_spotlight", [spotlight], separator)
+
+        # Build last-race points lookup (driver code → points scored in most recent race)
+        last_race_pts_map: Dict[str, int] = {}
+        last_race_con_pts_map: Dict[str, int] = {}
+        if self._recent_races:
+            for res in self._recent_races[0].get("all_results", []):
+                code = res.get("code", "").upper()
+                cid_res = res.get("constructor_id", "")
+                pts = int(res.get("points", 0))
+                last_race_pts_map[code] = pts
+                last_race_con_pts_map[cid_res] = (
+                    last_race_con_pts_map.get(cid_res, 0) + pts)
 
         # Driver standings
         if self._driver_standings:
-            cards = [r.render_driver_standing(e)
-                    for e in self._driver_standings]
+            cards = []
+            if r.show_standings_header:
+                cards.append(r.render_standings_header(
+                    "DRIVER STANDINGS", round_num=round_num,
+                    total_rounds=total_rounds, season=season))
+            # Driver form guide card (recent race positions at a glance)
+            if r.show_driver_form and self._recent_races:
+                form_card = r.render_driver_form_card(
+                    self._driver_standings[:8], self._recent_races)
+                cards.append(form_card)
+            for e in self._driver_standings:
+                enriched = dict(e)
+                enriched["last_race_pts"] = last_race_pts_map.get(
+                    e.get("code", "").upper(), 0)
+                cards.append(r.render_driver_standing(
+                    enriched, is_live=is_live, live_session=live_sess))
             self._scroll_manager.prepare_and_display(
                 "driver_standings", cards, separator)
 
-        # Constructor standings
+        # Constructor standings (enriched with per-driver points)
         if self._constructor_standings:
-            cards = [r.render_constructor_standing(e)
-                    for e in self._constructor_standings]
+            cards = []
+            if r.show_standings_header:
+                cards.append(r.render_standings_header(
+                    "CONSTRUCTOR STANDINGS", round_num=round_num,
+                    total_rounds=total_rounds, season=season))
+            for e in self._constructor_standings:
+                cid = e.get("constructor_id", "")
+                team_drivers = sorted(
+                    [d for d in self._driver_standings
+                     if d.get("constructor_id") == cid],
+                    key=lambda d: d.get("position", 99))
+                entry = dict(e)
+                entry["team_drivers"] = team_drivers
+                entry["last_race_pts"] = last_race_con_pts_map.get(cid, 0)
+                cards.append(r.render_constructor_standing(
+                    entry, is_live=is_live, live_session=live_sess))
             self._scroll_manager.prepare_and_display(
                 "constructor_standings", cards, separator)
 
-        # Recent races
+        # Recent races (winners summary + podium cards + favorite highlight + points haul + gap chart)
+        rr_cfg = self.config.get("recent_races", {})
+        show_haul = rr_cfg.get("show_points_haul", True)
+        haul_top_n = rr_cfg.get("points_haul_drivers", 5)
+        show_winners = rr_cfg.get("show_winners_summary", True)
+        show_gap_chart = rr_cfg.get("show_gap_chart", True)
+        gap_chart_n = rr_cfg.get("gap_chart_drivers", 5)
         if self._recent_races:
-            cards = [r.render_race_result(race)
-                    for race in self._recent_races]
+            cards = []
+            # Winners summary at the top (only if showing 2+ races)
+            if show_winners and len(self._recent_races) > 1:
+                cards.append(r.render_recent_winners_card(self._recent_races))
+            for race in self._recent_races:
+                cards.append(r.render_race_result(race))
+                # If favorite outside podium: results[3] is the appended favorite
+                results = race.get("results", [])
+                if self.favorite_driver and len(results) > 3:
+                    fav = results[3]
+                    if fav.get("code", "").upper() == self.favorite_driver:
+                        cards.append(r.render_favorite_race_card(race, fav))
+                # Gap chart bar visualization (skip if no result data available)
+                if show_gap_chart and race.get("all_results"):
+                    cards.append(r.render_race_gap_chart(race, top_n=gap_chart_n))
+                # Points haul bar chart (uses full unfiltered results)
+                if show_haul:
+                    cards.append(r.render_race_points_haul(race, top_n=haul_top_n))
             self._scroll_manager.prepare_and_display(
                 "recent_races", cards, separator)
 
@@ -392,6 +620,10 @@ class F1ScoreboardPlugin(BasePlugin):
         quali_config = self.config.get("qualifying", {})
         results = self._qualifying.get("results", [])
         race_name = self._qualifying.get("race_name", "")
+
+        # Team H2H card at the start of qualifying section
+        if quali_config.get("show_team_duel", True) and results:
+            cards.append(r.render_qualifying_team_duel_card(self._qualifying))
 
         for session_key, show_key, label in [
             ("q3", "show_q3", "Q3"),
@@ -533,7 +765,43 @@ class F1ScoreboardPlugin(BasePlugin):
         """Return rendered cards for modes that have data."""
         images = []
 
-        # Only include modes that have actual data
+        # Championship leaders overview card (very first)
+        if self._scroll_manager.is_mode_prepared("championship_leaders"):
+            images.extend(
+                self._scroll_manager.get_vegas_items_for_mode(
+                    "championship_leaders"))
+
+        # Championship battle card (P1 vs P2 title fight)
+        if self._scroll_manager.is_mode_prepared("championship_battle"):
+            images.extend(
+                self._scroll_manager.get_vegas_items_for_mode(
+                    "championship_battle"))
+
+        # Constructor championship battle card
+        if self._scroll_manager.is_mode_prepared("constructor_battle"):
+            images.extend(
+                self._scroll_manager.get_vegas_items_for_mode(
+                    "constructor_battle"))
+
+        # Spotlight cards go first (most important, followed driver/team)
+        for spotlight_key in ("driver_spotlight", "team_spotlight"):
+            if self._scroll_manager.is_mode_prepared(spotlight_key):
+                images.extend(
+                    self._scroll_manager.get_vegas_items_for_mode(
+                        spotlight_key))
+
+        # Upcoming race card (second — before standings)
+        if self._upcoming_race:
+            upcoming_card = self._scroll_renderer.render_upcoming_race(
+                self._enrich_upcoming_with_countdown(self._upcoming_race))
+            images.append(upcoming_card)
+            # Circuit stats card (immediately after upcoming race card)
+            if self._scroll_renderer.show_circuit_info:
+                circuit_card = self._scroll_renderer.render_circuit_info_card(
+                    self._upcoming_race)
+                images.append(circuit_card)
+
+        # Standings and results
         mode_data = {
             "driver_standings": self._driver_standings,
             "constructor_standings": self._constructor_standings,
@@ -547,12 +815,6 @@ class F1ScoreboardPlugin(BasePlugin):
             if data and self._scroll_manager.is_mode_prepared(mode_key):
                 images.extend(
                     self._scroll_manager.get_vegas_items_for_mode(mode_key))
-
-        # Add upcoming race card if available (use scroll renderer for consistent card width)
-        if self._upcoming_race:
-            upcoming_card = self._scroll_renderer.render_upcoming_race(
-                self._enrich_upcoming_with_countdown(self._upcoming_race))
-            images.insert(0, upcoming_card)
 
         return images if images else None
 
@@ -627,6 +889,10 @@ class F1ScoreboardPlugin(BasePlugin):
             "has_calendar": bool(self._calendar),
             "favorite_driver": self.favorite_driver,
             "favorite_team": self.favorite_team,
+            "is_live": self._is_live,
+            "live_session": self._live_session,
+            "is_race_weekend": self._is_race_weekend,
+            "effective_update_interval": self._update_interval,
         })
         return info
 
@@ -637,7 +903,8 @@ class F1ScoreboardPlugin(BasePlugin):
         self.favorite_driver = new_config.get("favorite_driver", "").upper()
         self.favorite_team = normalize_constructor_id(
             new_config.get("favorite_team", ""))
-        self._update_interval = new_config.get("update_interval", 3600)
+        self._base_update_interval = new_config.get("update_interval", 3600)
+        self._update_interval = self._base_update_interval
         self.display_duration = new_config.get("display_duration", 30)
         self.modes = self._build_enabled_modes()
 

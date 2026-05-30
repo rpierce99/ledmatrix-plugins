@@ -18,7 +18,7 @@ F1_TEAM_COLORS = {
     "haas":          (156, 159, 162),   # #9C9FA2 - Silver/Grey
     "sauber":        (245, 5, 55),      # #F50537 - Red (Audi transition)
     "rb":            (102, 152, 255),   # #6698FF - Blue
-    "cadillac":      (144, 144, 144),   # #909090 - Grey (2026)
+    "cadillac":      (0, 190, 255),     # #00BEFF - Electric Blue (2026 TWO Andretti Cadillac)
 }
 
 # Aliases for different naming conventions across APIs
@@ -45,6 +45,11 @@ _CONSTRUCTOR_ALIASES = {
     "rb f1 team": "rb",
     "haas f1 team": "haas",
     "alpine f1 team": "alpine",
+    # Cadillac aliases for 2026
+    "andretti": "cadillac",
+    "andretti cadillac": "cadillac",
+    "two andretti": "cadillac",
+    "cadillac f1": "cadillac",
 }
 
 # Podium accent colors (metallic)

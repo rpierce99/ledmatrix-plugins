@@ -1,14 +1,14 @@
 {
   "id": "f1-scoreboard",
   "name": "F1 Scoreboard",
-  "version": "1.2.4",
+  "version": "1.3.25",
   "author": "ChuckBuilds",
   "class_name": "F1ScoreboardPlugin",
   "entry_point": "manager.py",
   "repo": "https://github.com/ChuckBuilds/ledmatrix-plugins",
   "branch": "main",
   "plugin_path": "plugins/f1-scoreboard",
-  "description": "Formula 1 racing plugin showing driver/constructor standings, race results, qualifying breakdowns, practice standings, sprint results, upcoming races, and race calendar with team-colored displays and favorite driver/team support",
+  "description": "Formula 1 racing plugin showing driver/constructor standings with championship gap bars, race results, qualifying breakdowns, practice standings, sprint results, upcoming races, and race calendar. Features favorite driver/team spotlight cards, live session detection with auto-refresh, and team-colored displays.",
   "category": "sports",
   "tags": [
     "f1",
@@ -29,6 +29,136 @@
     "f1_calendar"
   ],
   "versions": [
+    {
+      "released": "2026-05-28",
+      "version": "1.3.25",
+      "ledmatrix_min": "2.0.0"
+    },
+    {
+      "released": "2026-05-28",
+      "version": "1.3.24",
+      "ledmatrix_min": "2.0.0"
+    },
+    {
+      "released": "2026-05-28",
+      "version": "1.3.23",
+      "ledmatrix_min": "2.0.0"
+    },
+    {
+      "released": "2026-05-28",
+      "version": "1.3.22",
+      "ledmatrix_min": "2.0.0"
+    },
+    {
+      "released": "2026-05-28",
+      "version": "1.3.21",
+      "ledmatrix_min": "2.0.0"
+    },
+    {
+      "released": "2026-05-28",
+      "version": "1.3.20",
+      "ledmatrix_min": "2.0.0"
+    },
+    {
+      "released": "2026-05-28",
+      "version": "1.3.19",
+      "ledmatrix_min": "2.0.0"
+    },
+    {
+      "released": "2026-05-28",
+      "version": "1.3.18",
+      "ledmatrix_min": "2.0.0"
+    },
+    {
+      "released": "2026-05-28",
+      "version": "1.3.17",
+      "ledmatrix_min": "2.0.0"
+    },
+    {
+      "released": "2026-05-28",
+      "version": "1.3.16",
+      "ledmatrix_min": "2.0.0"
+    },
+    {
+      "released": "2026-05-28",
+      "version": "1.3.15",
+      "ledmatrix_min": "2.0.0"
+    },
+    {
+      "released": "2026-05-28",
+      "version": "1.3.14",
+      "ledmatrix_min": "2.0.0"
+    },
+    {
+      "released": "2026-05-28",
+      "version": "1.3.13",
+      "ledmatrix_min": "2.0.0"
+    },
+    {
+      "released": "2026-05-28",
+      "version": "1.3.12",
+      "ledmatrix_min": "2.0.0"
+    },
+    {
+      "released": "2026-05-28",
+      "version": "1.3.11",
+      "ledmatrix_min": "2.0.0"
+    },
+    {
+      "released": "2026-05-28",
+      "version": "1.3.10",
+      "ledmatrix_min": "2.0.0"
+    },
+    {
+      "released": "2026-05-28",
+      "version": "1.3.9",
+      "ledmatrix_min": "2.0.0"
+    },
+    {
+      "released": "2026-05-28",
+      "version": "1.3.8",
+      "ledmatrix_min": "2.0.0"
+    },
+    {
+      "released": "2026-05-28",
+      "version": "1.3.7",
+      "ledmatrix_min": "2.0.0"
+    },
+    {
+      "released": "2026-05-28",
+      "version": "1.3.6",
+      "ledmatrix_min": "2.0.0"
+    },
+    {
+      "released": "2026-05-27",
+      "version": "1.3.5",
+      "ledmatrix_min": "2.0.0"
+    },
+    {
+      "released": "2026-05-27",
+      "version": "1.3.4",
+      "ledmatrix_min": "2.0.0"
+    },
+    {
+      "released": "2026-05-27",
+      "version": "1.3.3",
+      "ledmatrix_min": "2.0.0"
+    },
+    {
+      "released": "2026-05-27",
+      "version": "1.3.2",
+      "ledmatrix_min": "2.0.0"
+    },
+    {
+      "released": "2026-05-27",
+      "version": "1.3.1",
+      "ledmatrix_min": "2.0.0"
+    },
+    {
+      "released": "2026-05-27",
+      "version": "1.3.0",
+      "ledmatrix_min": "2.0.0"
+    },
     {
       "released": "2026-05-15",
       "version": "1.2.4",
@@ -60,7 +190,7 @@
       "ledmatrix_min_version": "2.0.0"
     }
   ],
-  "last_updated": "2026-05-15",
+  "last_updated": "2026-05-28",
   "stars": 0,
   "downloads": 0,
   "verified": true,

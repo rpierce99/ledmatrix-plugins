@@ -91,9 +91,15 @@
           "title": "Always Show Favorite",
           "default": true,
           "description": "Always include favorite team even if outside top N"
+        },
+        "show_driver_split": {
+          "type": "boolean",
+          "title": "Show Driver Points Split",
+          "default": true,
+          "description": "Show each constructor's two drivers and their individual point contributions (e.g. NOR 189 | PIA 145)"
         }
       },
-      "x-propertyOrder": ["enabled", "top_n", "always_show_favorite"],
+      "x-propertyOrder": ["enabled", "top_n", "always_show_favorite", "show_driver_split"],
       "additionalProperties": false
     },
     "recent_races": {
@@ -128,9 +134,55 @@
           "title": "Always Show Favorite",
           "default": true,
           "description": "Always include favorite driver in results even if outside top N finishers"
+        },
+        "show_position_delta": {
+          "type": "boolean",
+          "title": "Show Position Delta",
+          "default": true,
+          "description": "Show positions gained (+N green) or lost (-N red) compared to grid starting position"
+        },
+        "show_dnf_status": {
+          "type": "boolean",
+          "title": "Show DNF/Retirement",
+          "default": true,
+          "description": "Show RET for retired drivers or +NL for lapped drivers instead of gap time"
+        },
+        "show_points_haul": {
+          "type": "boolean",
+          "title": "Show Points Haul Card",
+          "default": true,
+          "description": "Show a bar-chart card after each race result displaying championship points scored per driver"
+        },
+        "points_haul_drivers": {
+          "type": "integer",
+          "title": "Points Haul Drivers",
+          "default": 5,
+          "minimum": 3,
+          "maximum": 10,
+          "description": "Number of point-scoring drivers to show on the points haul bar chart (max 10 drivers score in F1)"
+        },
+        "show_winners_summary": {
+          "type": "boolean",
+          "title": "Show Winners Summary Card",
+          "default": true,
+          "description": "Show a compact summary card listing the winner of each recent race (team accent color, race name, winner code)"
+        },
+        "show_gap_chart": {
+          "type": "boolean",
+          "title": "Show Race Gap Chart",
+          "default": true,
+          "description": "Show a horizontal bar chart visualizing each finisher's time gap from the race winner using team-colored bars"
+        },
+        "gap_chart_drivers": {
+          "type": "integer",
+          "title": "Gap Chart Drivers",
+          "default": 5,
+          "minimum": 3,
+          "maximum": 10,
+          "description": "Number of drivers to show on the race gap bar chart (3-10)"
         }
       },
-      "x-propertyOrder": ["enabled", "number_of_races", "top_finishers", "always_show_favorite"],
+      "x-propertyOrder": ["enabled", "number_of_races", "top_finishers", "always_show_favorite", "show_position_delta", "show_dnf_status", "show_points_haul", "points_haul_drivers", "show_winners_summary", "show_gap_chart", "gap_chart_drivers"],
       "additionalProperties": false
     },
     "upcoming": {
@@ -155,9 +207,15 @@
           "title": "Countdown Timer",
           "default": true,
           "description": "Show live countdown timer to next session"
+        },
+        "show_circuit_info": {
+          "type": "boolean",
+          "title": "Show Circuit Stats Card",
+          "default": true,
+          "description": "Show a circuit facts card after the upcoming race card: laps, distance, and lap record"
         }
       },
-      "x-propertyOrder": ["enabled", "show_session_times", "countdown_enabled"],
+      "x-propertyOrder": ["enabled", "show_session_times", "countdown_enabled", "show_circuit_info"],
       "additionalProperties": false
     },
     "qualifying": {
@@ -194,9 +252,15 @@
           "title": "Show Gaps",
           "default": true,
           "description": "Show time differential to session leader"
+        },
+        "show_team_duel": {
+          "type": "boolean",
+          "title": "Show Team H2H Card",
+          "default": true,
+          "description": "Show a summary card at the start of qualifying with each team's intra-team battle (which driver outqualified their teammate and by how many positions)"
         }
       },
-      "x-propertyOrder": ["enabled", "show_q3", "show_q2", "show_q1", "show_gaps"],
+      "x-propertyOrder": ["enabled", "show_q3", "show_q2", "show_q1", "show_gaps", "show_team_duel"],
       "additionalProperties": false
     },
     "practice": {
@@ -352,6 +416,165 @@
       },
       "additionalProperties": false
     },
+    "visual": {
+      "type": "object",
+      "title": "Visual Features",
+      "description": "Enable or disable individual visual elements and set their colors",
+      "properties": {
+        "fastest_lap_dot": {
+          "type": "object",
+          "title": "Fastest Lap Dot",
+          "description": "Small colored dot shown on the driver who set the fastest lap in a race result",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "title": "Enabled",
+              "default": true,
+              "description": "Show a dot on the driver with the fastest lap"
+            },
+            "color": {
+              "type": "array",
+              "title": "Color (RGB)",
+              "items": { "type": "integer", "minimum": 0, "maximum": 255 },
+              "minItems": 3,
+              "maxItems": 3,
+              "default": [180, 0, 255],
+              "description": "RGB color of the fastest lap dot (default: purple [180, 0, 255])"
+            }
+          },
+          "x-propertyOrder": ["enabled", "color"],
+          "additionalProperties": false
+        },
+        "gap_bar": {
+          "type": "object",
+          "title": "Championship Gap Bar",
+          "description": "Horizontal bar showing championship points gap to leader in standings",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "title": "Enabled",
+              "default": true,
+              "description": "Show the points gap bar in driver and constructor standings"
+            }
+          },
+          "x-propertyOrder": ["enabled"],
+          "additionalProperties": false
+        },
+        "standings_header": {
+          "type": "object",
+          "title": "Standings Header Card",
+          "description": "Intro card shown before driver and constructor standings with F1 logo and season progress",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "title": "Enabled",
+              "default": true,
+              "description": "Show the standings header card before scrolling through standings"
+            },
+            "show_round": {
+              "type": "boolean",
+              "title": "Show Round Info",
+              "default": true,
+              "description": "Show current round number and season progress bar on the header card"
+            }
+          },
+          "x-propertyOrder": ["enabled", "show_round"],
+          "additionalProperties": false
+        },
+        "circuit_map": {
+          "type": "object",
+          "title": "Circuit Map",
+          "description": "Circuit layout image shown on the upcoming race card",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "title": "Enabled",
+              "default": true,
+              "description": "Show circuit layout diagram on the upcoming race card"
+            }
+          },
+          "x-propertyOrder": ["enabled"],
+          "additionalProperties": false
+        },
+        "championship_leaders": {
+          "type": "object",
+          "title": "Championship Leaders Card",
+          "description": "Split card showing current driver and constructor championship leaders at the start of the scroll",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "title": "Enabled",
+              "default": true,
+              "description": "Show the championship leaders intro card in the scroll sequence"
+            }
+          },
+          "x-propertyOrder": ["enabled"],
+          "additionalProperties": false
+        },
+        "championship_battle": {
+          "type": "object",
+          "title": "Driver Championship Battle Card",
+          "description": "Split card showing P1 vs P2 driver title fight with gap bar and ALIVE/NEAR/WON status",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "title": "Enabled",
+              "default": true,
+              "description": "Show the driver championship battle card in the scroll sequence"
+            }
+          },
+          "x-propertyOrder": ["enabled"],
+          "additionalProperties": false
+        },
+        "constructor_battle": {
+          "type": "object",
+          "title": "Constructor Championship Battle Card",
+          "description": "Split card showing P1 vs P2 constructor title fight with team logos, gap bar, and ALIVE/NEAR/WON status",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "title": "Enabled",
+              "default": true,
+              "description": "Show the constructor championship battle card in the scroll sequence"
+            }
+          },
+          "x-propertyOrder": ["enabled"],
+          "additionalProperties": false
+        },
+        "driver_form": {
+          "type": "object",
+          "title": "Driver Form Guide Card",
+          "description": "Compact 2-column grid showing recent race positions per driver as colored boxes (gold=P1, silver=P2, bronze=P3, green=points, red=DNF)",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "title": "Enabled",
+              "default": true,
+              "description": "Show the driver form guide card at the start of the driver standings section"
+            }
+          },
+          "x-propertyOrder": ["enabled"],
+          "additionalProperties": false
+        },
+        "last_race_points": {
+          "type": "object",
+          "title": "Last Race Points Indicator",
+          "description": "Shows +N points scored in the most recent race on each standings card (gold=podium points, green=solid haul, grey=small haul)",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "title": "Enabled",
+              "default": true,
+              "description": "Show last-race points (+N) in the stat zone of each driver and constructor standings card"
+            }
+          },
+          "x-propertyOrder": ["enabled"],
+          "additionalProperties": false
+        }
+      },
+      "x-propertyOrder": ["fastest_lap_dot", "gap_bar", "standings_header", "circuit_map", "championship_leaders", "championship_battle", "constructor_battle", "driver_form", "last_race_points"],
+      "additionalProperties": false
+    },
     "customization": {
       "type": "object",
       "title": "Display Customization",
@@ -450,7 +673,7 @@
       "additionalProperties": false
     }
   },
-  "x-propertyOrder": ["enabled", "display_duration", "update_interval", "favorite_team", "favorite_driver", "driver_standings", "constructor_standings", "recent_races", "upcoming", "qualifying", "practice", "sprint", "calendar", "dynamic_duration", "scroll", "customization"],
+  "x-propertyOrder": ["enabled", "display_duration", "update_interval", "favorite_team", "favorite_driver", "driver_standings", "constructor_standings", "recent_races", "upcoming", "qualifying", "practice", "sprint", "calendar", "dynamic_duration", "scroll", "visual", "customization"],
   "additionalProperties": false,
   "required": ["enabled"]
 }

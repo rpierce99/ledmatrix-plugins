@@ -10,7 +10,7 @@ Uses three data sources:
 
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
@@ -72,6 +72,10 @@ class F1DataSource:
 
         # Memoize latest round to avoid redundant HTTP requests
         self._latest_round_cache: Dict[int, Tuple[float, int]] = {}
+
+        # Live session detection state
+        self._live_session_type: str = ""
+        self._is_race_weekend: bool = False
 
     # ─── Cache Helpers ─────────────────────────────────────────────────
 
@@ -271,6 +275,139 @@ class F1DataSource:
                 except (ValueError, TypeError):
                     continue
         return None
+
+    def detect_live_session(self) -> Tuple[bool, str]:
+        """
+        Detect if a race session is currently live.
+
+        Checks scheduled session times from ESPN schedule. A session is
+        considered "live" if we're within its expected duration window:
+          - Practice: 90 min
+          - Qualifying: 90 min
+          - Sprint Qualifying: 45 min
+          - Sprint Race: 30 min
+          - Grand Prix: 120 min
+
+        Returns:
+            (is_live, session_type_abbr) tuple
+        """
+        SESSION_DURATIONS = {
+            "FP1": 90, "FP2": 90, "FP3": 90,
+            "Qual": 90,
+            "SS": 45,    # Sprint Shootout / Sprint Qualifying
+            "SR": 45,    # Sprint Race
+            "Race": 120,
+        }
+
+        events = self.fetch_schedule()
+        if not events:
+            self._live_session_type = ""
+            self._is_race_weekend = False
+            return False, ""
+
+        now = datetime.now(timezone.utc)
+        is_race_weekend = False
+
+        for event in events:
+            # Check if we're within this event's time window (FP1 start to Race end+2h)
+            sessions = event.get("sessions", [])
+            if not sessions:
+                continue
+
+            # Find event time bounds
+            event_start = None
+            event_end = None
+            for s in sessions:
+                if s.get("date"):
+                    try:
+                        dt = datetime.fromisoformat(
+                            s["date"].replace("Z", "+00:00"))
+                        if event_start is None or dt < event_start:
+                            event_start = dt
+                        if event_end is None or dt > event_end:
+                            event_end = dt
+                    except (ValueError, TypeError):
+                        continue
+
+            if event_start is None or event_end is None:
+                continue
+
+            # Add buffer: event ends 4h after last session start (timedelta handles day rollover)
+            event_end_buffered = event_end + timedelta(hours=4)
+
+            if event_start <= now <= event_end_buffered:
+                is_race_weekend = True
+
+                # Check each session for live status
+                for session in sessions:
+                    abbr = session.get("type_abbr", "")
+                    state = session.get("status_state", "pre")
+                    date_str = session.get("date", "")
+
+                    if not date_str:
+                        continue
+
+                    try:
+                        session_start = datetime.fromisoformat(
+                            date_str.replace("Z", "+00:00"))
+                    except (ValueError, TypeError):
+                        continue
+
+                    duration_min = SESSION_DURATIONS.get(abbr, 90)
+                    session_end = session_start + timedelta(minutes=duration_min)
+
+                    if session_start <= now <= session_end:
+                        self._live_session_type = abbr
+                        self._is_race_weekend = True
+                        return True, abbr
+
+                    # ESPN may mark it "in" if it's live
+                    if state == "in":
+                        self._live_session_type = abbr
+                        self._is_race_weekend = True
+                        return True, abbr
+
+        self._live_session_type = ""
+        self._is_race_weekend = is_race_weekend
+        return False, ""
+
+    def get_is_race_weekend(self) -> bool:
+        """Return whether we're currently in a race weekend window."""
+        return self._is_race_weekend
+
+    def get_live_session_type(self) -> str:
+        """Return the currently live session abbreviation, or empty string."""
+        return self._live_session_type
+
+    def get_championship_gaps(self, standings: List[Dict],
+                               points_key: str = "points") -> List[Dict]:
+        """
+        Annotate standings entries with gap-to-leader and gap-to-next.
+
+        Args:
+            standings: List of standing entry dicts (must be sorted by position)
+            points_key: Key containing the points value
+
+        Returns:
+            Same list with 'gap_to_leader' and 'gap_to_next' added to each entry
+        """
+        if not standings:
+            return standings
+
+        annotated = [dict(e) for e in standings]
+        leader_pts = annotated[0].get(points_key, 0)
+
+        for i, entry in enumerate(annotated):
+            pts = entry.get(points_key, 0)
+            entry["gap_to_leader"] = round(leader_pts - pts, 1)
+            if i > 0:
+                prev_pts = annotated[i - 1].get(points_key, 0)
+                entry["gap_to_next"] = round(prev_pts - pts, 1)
+            else:
+                entry["gap_to_next"] = 0.0
+            entry["leader_points"] = leader_pts
+
+        return annotated
 
     def get_calendar(self, show_practice: bool = False,
                      show_qualifying: bool = True,
@@ -512,6 +649,7 @@ class F1DataSource:
                     "status": r.get("status", ""),
                     "time": time_data.get("time", ""),
                     "time_millis": time_data.get("millis", ""),
+                    "fastest_lap": fastest.get("rank", "") == "1",
                     "fastest_lap_rank": fastest.get("rank", ""),
                     "fastest_lap_time": fastest_time.get("time", ""),
                     "fastest_lap_number": fastest.get("lap", ""),
@@ -729,6 +867,7 @@ class F1DataSource:
                     constructor = sr.get("Constructor", {})
                     time_data = sr.get("Time", {})
 
+                    fastest = sr.get("FastestLap", {})
                     results.append({
                         "position": int(sr.get("position", 0)),
                         "points": float(sr.get("points", 0)),
@@ -744,6 +883,7 @@ class F1DataSource:
                         "laps": int(sr.get("laps", 0)),
                         "status": sr.get("status", ""),
                         "time": time_data.get("time", ""),
+                        "fastest_lap": fastest.get("rank", "") == "1",
                     })
 
                 circuit = race.get("Circuit", {})
@@ -960,6 +1100,10 @@ class F1DataSource:
         return parsed
 
     # ─── Helpers ───────────────────────────────────────────────────────
+
+    def get_latest_round(self, season: int) -> int:
+        """Public accessor for the latest completed round number."""
+        return self._get_latest_round(season)
 
     def _get_latest_round(self, season: int) -> int:
         """Get the latest completed round number for a season (memoized)."""
