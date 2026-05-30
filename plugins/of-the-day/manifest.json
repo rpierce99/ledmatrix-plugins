@@ -1,7 +1,7 @@
 {
   "id": "of-the-day",
   "name": "Of The Day Display",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "author": "ChuckBuilds",
   "description": "Display daily featured content like Word of the Day, Bible verses, or custom daily items. Supports multiple categories with rotating display and configurable data sources.",
   "category": "information",
@@ -46,37 +46,44 @@
     {
       "id": "list-files",
       "type": "script",
-      "script": "scripts/list_files.py"
+      "script": "scripts/list_files.py",
+      "ui_hidden": true
     },
     {
       "id": "upload-file",
       "type": "script",
-      "script": "scripts/upload_file.py"
+      "script": "scripts/upload_file.py",
+      "ui_hidden": true
     },
     {
       "id": "get-file",
       "type": "script",
-      "script": "scripts/get_file.py"
+      "script": "scripts/get_file.py",
+      "ui_hidden": true
     },
     {
       "id": "save-file",
       "type": "script",
-      "script": "scripts/save_file.py"
+      "script": "scripts/save_file.py",
+      "ui_hidden": true
     },
     {
       "id": "delete-file",
       "type": "script",
-      "script": "scripts/delete_file.py"
+      "script": "scripts/delete_file.py",
+      "ui_hidden": true
     },
     {
       "id": "create-file",
       "type": "script",
-      "script": "scripts/create_file.py"
+      "script": "scripts/create_file.py",
+      "ui_hidden": true
     },
     {
       "id": "toggle-category",
       "type": "script",
-      "script": "scripts/toggle_category.py"
+      "script": "scripts/toggle_category.py",
+      "ui_hidden": true
     }
   ]
 }

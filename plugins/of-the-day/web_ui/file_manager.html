@@ -457,7 +457,9 @@
     <script src="https://cdn.jsdelivr.net/npm/jsoneditor@latest/dist/jsoneditor.min.js"></script>
     
     <script>
-        const PLUGIN_ID = 'of-the-day';
+        // window.PLUGIN_ID is injected by the /plugin-ui/ route when embedded in an iframe.
+        // Falls back to hardcoded value for backwards-compatibility when loaded standalone.
+        const PLUGIN_ID = (typeof window.PLUGIN_ID !== 'undefined') ? window.PLUGIN_ID : 'of-the-day';
         let currentEditingFile = null;
         let jsonEditor = null;
         let fileToDelete = null;

@@ -77,7 +77,7 @@
       "type": "null",
       "title": "Data Files",
       "description": "Manage your Of The Day JSON data files",
-      "x-widget": "json-file-manager",
+      "x-widget": "plugin-file-manager",
       "x-widget-config": {
         "actions": {
           "list":   "list-files",

@@ -1,8 +1,9 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Countdown Plugin Configuration",
-  "description": "Configuration schema for the Countdown plugin - create and manage multiple countdowns with custom images",
+  "description": "Configuration schema for the Countdown plugin - create and manage multiple countdowns with custom images, fonts, and layouts",
   "type": "object",
+  "x-propertyOrder": ["enabled", "countdowns", "font_family", "font_size", "font_color", "name_font_size", "name_font_color", "background_color", "display_duration", "show_expired", "fit_to_display", "preserve_aspect_ratio"],
   "properties": {
     "enabled": {
       "type": "boolean",
@@ -12,9 +13,9 @@
     "countdowns": {
       "type": "array",
       "title": "Countdowns",
-      "description": "Manage your countdown entries. Each countdown can have a custom image, name, and target date.",
+      "description": "Manage your countdown entries. Each countdown can have a custom image, name, target date/time, and style overrides.",
       "x-widget": "array-table",
-      "x-columns": ["enabled", "name", "target_date", "display_order", "image_path"],
+      "x-columns": ["enabled", "name", "target_date", "target_time", "mode", "layout_preset", "text_align", "image_path"],
       "default": [],
       "items": {
         "type": "object",
@@ -42,14 +43,48 @@
           "target_date": {
             "type": "string",
             "title": "Target Date",
-            "$comment": "Use strict YYYY-MM-DD validation with regex for consistent behavior across validators/UI.",
+            "x-widget": "date-picker",
             "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-            "description": "Date to count down to (YYYY-MM-DD)"
+            "description": "Date to count down to (or count from for 'since' mode)"
+          },
+          "target_time": {
+            "type": "string",
+            "title": "Target Time",
+            "x-widget": "time-picker",
+            "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+            "default": "00:00",
+            "description": "Optional time for sub-day precision (HH:MM, 24h). Switches display to hours/minutes as the event approaches."
+          },
+          "mode": {
+            "type": "string",
+            "title": "Mode",
+            "enum": ["until", "since"],
+            "default": "until",
+            "description": "'until' counts down to the date (Days Until); 'since' counts up from it (Days Since / elapsed)"
+          },
+          "layout_preset": {
+            "type": "string",
+            "title": "Layout",
+            "enum": ["image-left", "image-right", "text-only", "image-only"],
+            "default": "image-left",
+            "description": "Where to place the image relative to the text. 'text-only' ignores any image; 'image-only' hides text."
+          },
+          "text_align": {
+            "type": "string",
+            "title": "Text Align",
+            "enum": ["left", "center", "right"],
+            "default": "center",
+            "description": "Horizontal alignment of the countdown name and value within the text area"
           },
           "image_path": {
             "type": "string",
             "title": "Image",
-            "description": "Optional image path (example: assets/plugins/countdown/uploads/my-image.png)"
+            "x-widget": "file-upload-single",
+            "x-upload-config": {
+              "allowed_types": ["image/png", "image/jpeg", "image/bmp", "image/gif"],
+              "max_size_mb": 5
+            },
+            "description": "Optional image displayed alongside this countdown"
           },
           "display_order": {
             "type": "integer",
@@ -57,6 +92,137 @@
             "default": 0,
             "description": "Display order (lower = first)",
             "minimum": 0
+          },
+          "layout": {
+            "type": "object",
+            "title": "Layout",
+            "description": "Pixel position and size overrides. Leave at 0 or null to use smart defaults (image on left 1/3, text on right 2/3).",
+            "properties": {
+              "image_x": {
+                "type": "integer",
+                "title": "Image X",
+                "default": 0,
+                "minimum": 0,
+                "description": "Image left edge position (pixels)"
+              },
+              "image_y": {
+                "type": "integer",
+                "title": "Image Y",
+                "default": 0,
+                "minimum": 0,
+                "description": "Image top edge position (pixels)"
+              },
+              "image_width": {
+                "type": "integer",
+                "title": "Image Width",
+                "default": 0,
+                "minimum": 0,
+                "description": "Image render width in pixels (0 = auto: 1/3 of display width)"
+              },
+              "image_height": {
+                "type": "integer",
+                "title": "Image Height",
+                "default": 0,
+                "minimum": 0,
+                "description": "Image render height in pixels (0 = auto: full display height)"
+              },
+              "name_x": {
+                "type": ["integer", "null"],
+                "title": "Name X",
+                "default": null,
+                "description": "Name text X position (null = auto-center in text area)"
+              },
+              "name_y": {
+                "type": ["integer", "null"],
+                "title": "Name Y",
+                "default": null,
+                "description": "Name text Y position (null = auto: upper 1/3)"
+              },
+              "value_x": {
+                "type": ["integer", "null"],
+                "title": "Value X",
+                "default": null,
+                "description": "Countdown value text X position (null = auto-center in text area)"
+              },
+              "value_y": {
+                "type": ["integer", "null"],
+                "title": "Value Y",
+                "default": null,
+                "description": "Countdown value text Y position (null = auto: lower 2/3)"
+              }
+            }
+          },
+          "style": {
+            "type": "object",
+            "title": "Style",
+            "description": "Per-countdown font and color overrides. null values inherit global settings.",
+            "properties": {
+              "font_family": {
+                "type": ["string", "null"],
+                "title": "Font Family",
+                "enum": ["press_start", "four_by_six", "tom_thumb", "tiny", "picopixel", null],
+                "default": null,
+                "description": "Font family override (null = use global)"
+              },
+              "font_size": {
+                "type": ["integer", "null"],
+                "title": "Value Font Size",
+                "minimum": 4,
+                "maximum": 16,
+                "default": null,
+                "description": "Countdown value font size in pixels (null = use global)"
+              },
+              "font_color": {
+                "type": ["array", "null"],
+                "title": "Value Color",
+                "x-widget": "color-picker",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 255
+                },
+                "minItems": 3,
+                "maxItems": 3,
+                "default": null,
+                "description": "Countdown value text color [R, G, B] (null = use global)"
+              },
+              "name_font_size": {
+                "type": ["integer", "null"],
+                "title": "Name Font Size",
+                "minimum": 4,
+                "maximum": 16,
+                "default": null,
+                "description": "Countdown name font size in pixels (null = use global)"
+              },
+              "name_font_color": {
+                "type": ["array", "null"],
+                "title": "Name Color",
+                "x-widget": "color-picker",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 255
+                },
+                "minItems": 3,
+                "maxItems": 3,
+                "default": null,
+                "description": "Countdown name text color [R, G, B] (null = use global)"
+              },
+              "background_color": {
+                "type": ["array", "null"],
+                "title": "Background Color",
+                "x-widget": "color-picker",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 255
+                },
+                "minItems": 3,
+                "maxItems": 3,
+                "default": null,
+                "description": "Background color [R, G, B] (null = use global)"
+              }
+            }
           }
         },
         "required": ["name", "target_date"]
@@ -64,19 +230,23 @@
     },
     "font_family": {
       "type": "string",
+      "title": "Default Font Family",
       "enum": ["press_start", "four_by_six", "tom_thumb", "tiny", "picopixel"],
       "default": "press_start",
-      "description": "Font family for countdown text"
+      "description": "Global font family for countdown text (can be overridden per countdown)"
     },
     "font_size": {
       "type": "integer",
-      "minimum": 6,
+      "title": "Default Value Font Size",
+      "minimum": 4,
       "maximum": 16,
       "default": 8,
-      "description": "Font size in pixels"
+      "description": "Global font size for countdown values in pixels"
     },
     "font_color": {
       "type": "array",
+      "title": "Default Value Color",
+      "x-widget": "color-picker",
       "items": {
         "type": "integer",
         "minimum": 0,
@@ -85,17 +255,20 @@
       "minItems": 3,
       "maxItems": 3,
       "default": [255, 255, 255],
-      "description": "RGB color for countdown text [R, G, B]"
+      "description": "Global RGB color for countdown value text [R, G, B]"
     },
     "name_font_size": {
       "type": "integer",
-      "minimum": 6,
+      "title": "Default Name Font Size",
+      "minimum": 4,
       "maximum": 16,
       "default": 8,
-      "description": "Font size for countdown name"
+      "description": "Global font size for countdown names in pixels"
     },
     "name_font_color": {
       "type": "array",
+      "title": "Default Name Color",
+      "x-widget": "color-picker",
       "items": {
         "type": "integer",
         "minimum": 0,
@@ -104,20 +277,12 @@
       "minItems": 3,
       "maxItems": 3,
       "default": [200, 200, 200],
-      "description": "RGB color for countdown name [R, G, B]"
-    },
-    "fit_to_display": {
-      "type": "boolean",
-      "default": true,
-      "description": "Automatically fit images to display dimensions"
-    },
-    "preserve_aspect_ratio": {
-      "type": "boolean",
-      "default": true,
-      "description": "Preserve image aspect ratio when scaling"
+      "description": "Global RGB color for countdown name text [R, G, B]"
     },
     "background_color": {
       "type": "array",
+      "title": "Default Background Color",
+      "x-widget": "color-picker",
       "items": {
         "type": "integer",
         "minimum": 0,
@@ -126,19 +291,33 @@
       "minItems": 3,
       "maxItems": 3,
       "default": [0, 0, 0],
-      "description": "RGB background color [R, G, B]"
+      "description": "Global RGB background color [R, G, B]"
     },
     "display_duration": {
       "type": "number",
+      "title": "Display Duration",
       "minimum": 5,
       "maximum": 300,
       "default": 15,
-      "description": "How long to display each countdown in seconds"
+      "description": "How long to display each countdown in seconds before rotating"
     },
     "show_expired": {
       "type": "boolean",
+      "title": "Show Expired",
       "default": false,
-      "description": "Show countdowns that have already passed"
+      "description": "Show 'until' countdowns that have already passed (displayed as 'Nd ago')"
+    },
+    "fit_to_display": {
+      "type": "boolean",
+      "title": "Fit Images to Display",
+      "default": true,
+      "description": "Automatically scale images to fit their allocated display area"
+    },
+    "preserve_aspect_ratio": {
+      "type": "boolean",
+      "title": "Preserve Aspect Ratio",
+      "default": true,
+      "description": "Preserve image aspect ratio when scaling"
     }
   },
   "required": ["enabled"]

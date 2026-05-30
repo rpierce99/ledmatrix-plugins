@@ -6,64 +6,50 @@ events, and special occasions.
 
 Features:
 - Multiple countdown entries with individual enable/disable
-- Path-based image selection for each countdown
-- Configurable fonts, colors, and display settings
-- Image on left 1/3rd, text on right 2/3rds layout
+- Per-countdown image upload with thumbnail preview
+- Configurable fonts, colors, and display settings per countdown
+- Per-countdown layout: custom image/text positioning
+- Adaptive time display: Days → Hours:Minutes → Minutes as event approaches
+- "Until" mode (days/hours until) and "Since" mode (elapsed days)
 - Automatic rotation through enabled countdowns
 
 API Version: 1.0.0
 """
 
-import logging
 import os
 import time
 import uuid
 from typing import Dict, Any, Tuple, Optional, List
-from datetime import datetime, date
-from PIL import Image
+from datetime import datetime, date, time as dtime
+from PIL import Image, ImageDraw
 from pathlib import Path
 
 from src.plugin_system.base_plugin import BasePlugin
-
-logger = logging.getLogger(__name__)
+from src.logging_config import get_logger
 
 
 class CountdownPlugin(BasePlugin):
     """
     Countdown display plugin for LED matrix.
 
-    Supports multiple countdowns with path-based images, configurable fonts,
-    and automatic rotation through enabled entries.
-
-    Configuration options:
-        countdowns (list): Array of countdown entries
-        font_family (str): Font family for countdown text
-        font_size (int): Font size in pixels
-        font_color (list): RGB color for countdown value
-        name_font_size (int): Font size for countdown name
-        name_font_color (list): RGB color for countdown name
-        fit_to_display (bool): Auto-fit images to display dimensions
-        preserve_aspect_ratio (bool): Preserve aspect ratio when scaling
-        background_color (list): RGB background color
-        display_duration (float): Display duration per countdown in seconds
-        show_expired (bool): Show countdowns that have already passed
+    Supports multiple countdowns with per-countdown images, fonts, colors,
+    layout positioning, and adaptive time granularity.
     """
 
     def __init__(self, plugin_id: str, config: Dict[str, Any],
                  display_manager, cache_manager, plugin_manager):
-        """Initialize the countdown plugin."""
         super().__init__(plugin_id, config, display_manager, cache_manager, plugin_manager)
+        self.logger = get_logger(self.plugin_id)
 
-        # Configuration
+        # Global display settings
         self.fit_to_display = config.get('fit_to_display', True)
         self.preserve_aspect_ratio = config.get('preserve_aspect_ratio', True)
         self.show_expired = config.get('show_expired', False)
 
-        # Handle background_color
         bg_color = config.get('background_color', [0, 0, 0])
         self.background_color = self._parse_color(bg_color, (0, 0, 0))
 
-        # Font configuration
+        # Global font settings (used when per-countdown style is not set)
         self.font_family = config.get('font_family', 'press_start')
         self.font_size = config.get('font_size', 8)
         self.font_color = self._parse_color(config.get('font_color', [255, 255, 255]), (255, 255, 255))
@@ -72,30 +58,29 @@ class CountdownPlugin(BasePlugin):
 
         # Countdown entries
         self.countdowns = self._normalize_countdowns(config.get('countdowns', []))
-
-        # Cache signature lets us invalidate image cache when countdown metadata changes.
         self._countdown_signature = self._build_countdown_signature(self.countdowns)
 
         # Rotation state
         self.current_countdown_index = 0
         self.last_rotation_time = time.time()
 
-        # Cached images
-        self.cached_images = {}  # {countdown_id: PIL.Image}
-
-        # Countdown calculations cache
-        self.countdown_values = {}  # {countdown_id: {'days': int, 'hours': int, 'minutes': int, 'text': str}}
+        # Image cache: {countdown_id: PIL.Image}
+        self.cached_images = {}
+        # Countdown calculation cache: {countdown_id: dict}
+        self.countdown_values = {}
 
         self.logger.info(f"Countdown plugin initialized with {len(self.countdowns)} countdown(s)")
-
-        # Register fonts
         self._register_fonts()
 
-    def _parse_color(self, color_value: Any, default: Tuple[int, int, int]) -> Tuple[int, int, int]:
-        """Parse color value from config (handles lists, tuples, strings)."""
+    # ─── Color / bool helpers ────────────────────────────────────────────────
+
+    def _parse_color(self, color_value: Any, default: Tuple[int, int, int]) -> Optional[Tuple[int, int, int]]:
+        """Parse RGB color from list/tuple. Returns None if color_value is None (per-countdown override absent)."""
+        if color_value is None:
+            return None
         if isinstance(color_value, (list, tuple)) and len(color_value) == 3:
             try:
-                color_numeric = []
+                result = []
                 for c in color_value:
                     if isinstance(c, str):
                         c = int(float(c))
@@ -105,17 +90,15 @@ class CountdownPlugin(BasePlugin):
                         raise ValueError(f"Invalid color value type: {type(c)}")
                     if not (0 <= c <= 255):
                         raise ValueError(f"Color value {c} out of range 0-255")
-                    color_numeric.append(c)
-                return tuple(color_numeric)
+                    result.append(c)
+                return tuple(result)
             except (ValueError, TypeError) as e:
                 self.logger.warning(f"Invalid color values: {e}, using default")
                 return default
-        else:
-            self.logger.warning(f"Invalid color type: {type(color_value)}, using default")
-            return default
+        self.logger.warning(f"Invalid color type: {type(color_value)}, using default")
+        return default
 
     def _parse_bool(self, value: Any, default: bool = True) -> bool:
-        """Parse booleans safely, including common string forms."""
         if isinstance(value, bool):
             return value
         if value is None:
@@ -131,13 +114,13 @@ class CountdownPlugin(BasePlugin):
             return value != 0
         return bool(value)
 
+    # ─── ID generation ───────────────────────────────────────────────────────
+
     def _generate_unique_countdown_id(self, used_ids: set, preferred_id: str = "") -> str:
-        """Return a unique countdown ID, preserving preferred_id when available."""
         candidate = preferred_id.strip()
         if candidate and candidate not in used_ids:
             used_ids.add(candidate)
             return candidate
-
         base = candidate if candidate else "countdown"
         suffix = 1
         while True:
@@ -150,20 +133,41 @@ class CountdownPlugin(BasePlugin):
                 return unique_id
             suffix += 1
 
-    def _normalize_countdowns(self, raw_countdowns: Any) -> List[Dict[str, Any]]:
-        """
-        Normalize countdown entries for consistent runtime behavior.
+    # ─── Normalization ───────────────────────────────────────────────────────
 
-        - Ensures list/dict structure
-        - Generates unique IDs
-        - Parses booleans robustly (including string values)
-        - Migrates legacy image array format to image_path
-        """
+    def _normalize_layout(self, raw: Any) -> Dict[str, Any]:
+        d = raw if isinstance(raw, dict) else {}
+        return {
+            "image_x":      max(0, int(d.get("image_x", 0) or 0)),
+            "image_y":      max(0, int(d.get("image_y", 0) or 0)),
+            "image_width":  max(0, int(d.get("image_width", 0) or 0)),
+            "image_height": max(0, int(d.get("image_height", 0) or 0)),
+            "name_x":       d.get("name_x"),
+            "name_y":       d.get("name_y"),
+            "value_x":      d.get("value_x"),
+            "value_y":      d.get("value_y"),
+        }
+
+    def _normalize_style(self, raw: Any) -> Dict[str, Any]:
+        d = raw if isinstance(raw, dict) else {}
+        font_color = d.get("font_color")
+        name_color = d.get("name_font_color")
+        bg_color   = d.get("background_color")
+        return {
+            "font_family":      d.get("font_family") or None,
+            "font_size":        d.get("font_size") or None,
+            "font_color":       self._parse_color(font_color, None) if font_color is not None else None,
+            "name_font_size":   d.get("name_font_size") or None,
+            "name_font_color":  self._parse_color(name_color, None) if name_color is not None else None,
+            "background_color": self._parse_color(bg_color, None) if bg_color is not None else None,
+        }
+
+    def _normalize_countdowns(self, raw_countdowns: Any) -> List[Dict[str, Any]]:
+        """Normalize countdown entries for consistent runtime behavior."""
         if not isinstance(raw_countdowns, list):
             self.logger.warning(f"Countdowns is not a list: {type(raw_countdowns)}, defaulting to empty")
             return []
 
-        normalized_countdowns: List[Dict[str, Any]] = []
         incoming_ids = {
             str(item.get("id", "")).strip()
             for item in raw_countdowns
@@ -172,65 +176,70 @@ class CountdownPlugin(BasePlugin):
         incoming_ids.discard("")
 
         used_ids = set()
-        # Include existing runtime IDs to avoid cache key collisions during hot reloads.
-        # Exclude IDs present in incoming config so they are not treated as collisions.
         if isinstance(getattr(self, "cached_images", None), dict):
-            used_ids.update(
-                str(k) for k in self.cached_images.keys()
-                if str(k) not in incoming_ids
-            )
+            used_ids.update(str(k) for k in self.cached_images.keys() if str(k) not in incoming_ids)
         if isinstance(getattr(self, "countdown_values", None), dict):
-            used_ids.update(
-                str(k) for k in self.countdown_values.keys()
-                if str(k) not in incoming_ids
-            )
+            used_ids.update(str(k) for k in self.countdown_values.keys() if str(k) not in incoming_ids)
 
+        normalized: List[Dict[str, Any]] = []
         for index, item in enumerate(raw_countdowns):
             if not isinstance(item, dict):
                 self.logger.warning(f"Skipping invalid countdown item at index {index}: {item}")
                 continue
 
-            normalized = dict(item)
-            provided_id = str(normalized.get("id", "")).strip()
-            normalized["id"] = self._generate_unique_countdown_id(used_ids, provided_id)
-            normalized["enabled"] = self._parse_bool(normalized.get("enabled", True), default=True)
+            entry = dict(item)
+            provided_id = str(entry.get("id", "")).strip()
+            entry["id"] = self._generate_unique_countdown_id(used_ids, provided_id)
+            entry["enabled"] = self._parse_bool(entry.get("enabled", True), default=True)
 
             try:
-                normalized["display_order"] = int(normalized.get("display_order", 0))
+                entry["display_order"] = int(entry.get("display_order", 0))
             except (ValueError, TypeError):
-                normalized["display_order"] = 0
+                entry["display_order"] = 0
 
-            normalized["name"] = str(normalized.get("name", "")).strip()
-            normalized["target_date"] = str(normalized.get("target_date", "")).strip()
+            entry["name"] = str(entry.get("name", "")).strip()
+            entry["target_date"] = str(entry.get("target_date", "")).strip()
+            entry["target_time"] = str(entry.get("target_time", "00:00") or "00:00").strip()
+            entry["mode"] = entry.get("mode", "until") if entry.get("mode") in ("until", "since") else "until"
+            _valid_presets = ("image-left", "image-right", "text-only", "image-only")
+            entry["layout_preset"] = entry.get("layout_preset", "image-left") if entry.get("layout_preset") in _valid_presets else "image-left"
+            entry["text_align"] = entry.get("text_align", "center") if entry.get("text_align") in ("left", "center", "right") else "center"
 
-            image_path = normalized.get("image_path")
+            # Migrate legacy image array format to image_path string
+            image_path = entry.get("image_path")
             if not image_path:
-                legacy_images = normalized.get("image", [])
-                if (
-                    isinstance(legacy_images, list)
-                    and legacy_images
-                    and isinstance(legacy_images[0], dict)
-                ):
-                    image_path = legacy_images[0].get("path")
-            normalized["image_path"] = str(image_path).strip() if image_path else ""
+                legacy = entry.get("image", [])
+                if isinstance(legacy, list) and legacy and isinstance(legacy[0], dict):
+                    image_path = legacy[0].get("path")
+            entry["image_path"] = str(image_path).strip() if image_path else ""
 
-            normalized_countdowns.append(normalized)
+            entry["layout"] = self._normalize_layout(entry.get("layout"))
+            entry["style"]  = self._normalize_style(entry.get("style"))
 
-        normalized_countdowns.sort(key=lambda x: x.get("display_order", 0))
-        return normalized_countdowns
+            normalized.append(entry)
 
-    def _build_countdown_signature(self, countdowns: Optional[List[Dict[str, Any]]] = None) -> Tuple[Any, ...]:
-        """Build a config signature used to detect cache-relevant changes."""
+        normalized.sort(key=lambda x: x.get("display_order", 0))
+        return normalized
+
+    # ─── Signature (cache invalidation) ──────────────────────────────────────
+
+    def _build_countdown_signature(self, countdowns: Optional[List[Dict[str, Any]]] = None) -> Tuple:
         if countdowns is None:
             countdowns = self.countdowns
-        countdown_items = tuple(
+        items = tuple(
             (
                 c.get("id", ""),
                 c.get("name", ""),
                 c.get("target_date", ""),
+                c.get("target_time", "00:00"),
+                c.get("mode", "until"),
+                c.get("layout_preset", "image-left"),
+                c.get("text_align", "center"),
                 c.get("enabled", True),
                 c.get("display_order", 0),
                 c.get("image_path", ""),
+                tuple(sorted(c.get("layout", {}).items())),
+                tuple(sorted((k, str(v)) for k, v in c.get("style", {}).items())),
             )
             for c in countdowns
         )
@@ -239,104 +248,92 @@ class CountdownPlugin(BasePlugin):
             self.preserve_aspect_ratio,
             self.background_color,
             self.show_expired,
-            countdown_items,
+            items,
         )
 
+    # ─── Font registration ────────────────────────────────────────────────────
+
     def _register_fonts(self):
-        """Register fonts with the font manager."""
         try:
             if not hasattr(self.plugin_manager, 'font_manager'):
                 return
-
-            font_manager = self.plugin_manager.font_manager
-
-            # Countdown value font
-            font_manager.register_manager_font(
+            fm = self.plugin_manager.font_manager
+            fm.register_manager_font(
                 manager_id=self.plugin_id,
                 element_key=f"{self.plugin_id}.countdown_value",
                 family=self.font_family,
                 size_px=self.font_size,
                 color=self.font_color
             )
-
-            # Countdown name font
-            font_manager.register_manager_font(
+            fm.register_manager_font(
                 manager_id=self.plugin_id,
                 element_key=f"{self.plugin_id}.countdown_name",
                 family=self.font_family,
                 size_px=self.name_font_size,
                 color=self.name_font_color
             )
-
-            # Error message font
-            font_manager.register_manager_font(
+            fm.register_manager_font(
                 manager_id=self.plugin_id,
                 element_key=f"{self.plugin_id}.error",
                 family="press_start",
                 size_px=8,
                 color=(255, 0, 0)
             )
-
             self.logger.info("Countdown fonts registered")
         except Exception as e:
             self.logger.warning(f"Error registering fonts: {e}")
 
-    def _resolve_image_path(self, image_path: str) -> Optional[str]:
-        """
-        Resolve image path to absolute path.
-        Handles both absolute paths and relative paths (from project root).
-        """
-        if not image_path:
+    def _resolve_font(self, countdown_id: str, role: str, family: str, size_px: int, color: Tuple):
+        """Resolve a font. color is used only for registration, not resolution."""
+        try:
+            if not hasattr(self.plugin_manager, 'font_manager'):
+                return None
+            fm = self.plugin_manager.font_manager
+            # Register per-countdown key so it carries the right color, then resolve it.
+            fm.register_manager_font(
+                manager_id=self.plugin_id,
+                element_key=f"{self.plugin_id}.{countdown_id}.{role}",
+                family=family,
+                size_px=size_px,
+                color=color
+            )
+            return fm.resolve_font(
+                element_key=f"{self.plugin_id}.{countdown_id}.{role}",
+                family=family,
+                size_px=size_px
+            )
+        except Exception as e:
+            self.logger.warning(f"Error resolving font for {countdown_id}.{role}: {e}")
             return None
 
-        # If already absolute, check if it exists
-        if os.path.isabs(image_path):
-            if os.path.exists(image_path):
-                return image_path
+    # ─── Image loading ────────────────────────────────────────────────────────
 
-        # Try relative to current working directory
+    def _resolve_image_path(self, image_path: str) -> Optional[str]:
+        if not image_path:
+            return None
+        if os.path.isabs(image_path) and os.path.exists(image_path):
+            return image_path
         if os.path.exists(image_path):
             return os.path.abspath(image_path)
-
-        # Try relative to project root
         project_root = Path(__file__).resolve().parent.parent.parent
-        project_path = project_root / image_path
-        if project_path.exists():
-            return str(project_path)
-
+        p = project_root / image_path
+        if p.exists():
+            return str(p)
         return image_path
 
-    def _load_and_scale_image(self, image_path: str, target_width: int, target_height: int) -> Optional[Image.Image]:
-        """
-        Load and scale an image to fit the target dimensions.
-
-        Args:
-            image_path: Path to image file
-            target_width: Target width in pixels
-            target_height: Target height in pixels
-
-        Returns:
-            PIL Image or None if loading fails
-        """
+    def _load_and_scale_image(self, image_path: str, target_width: int, target_height: int,
+                               bg_color: Tuple[int, int, int]) -> Optional[Image.Image]:
         if not image_path:
             return None
-
-        # Resolve path
-        resolved_path = self._resolve_image_path(image_path)
-
-        if not resolved_path or not os.path.exists(resolved_path):
-            self.logger.warning(f"Image file not found: {image_path} (resolved: {resolved_path})")
+        resolved = self._resolve_image_path(image_path)
+        if not resolved or not os.path.exists(resolved):
+            self.logger.warning(f"Image not found: {image_path}")
             return None
-
         try:
-            # Load the image
-            img = Image.open(resolved_path)
-
-            # Convert to RGBA to handle transparency
+            img = Image.open(resolved)
             if img.mode != 'RGBA':
                 img = img.convert('RGBA')
 
-            # Calculate target size
             if self.fit_to_display and self.preserve_aspect_ratio:
                 target_size = self._calculate_fit_size(img.size, (target_width, target_height))
             elif self.fit_to_display:
@@ -344,505 +341,428 @@ class CountdownPlugin(BasePlugin):
             else:
                 target_size = img.size
 
-            # Resize image if needed
             if target_size != img.size:
                 img = img.resize(target_size, Image.Resampling.LANCZOS)
 
-            # Create canvas with background color
-            canvas = Image.new('RGB', (target_width, target_height), self.background_color)
-
-            # Calculate position to center the image
+            canvas = Image.new('RGB', (target_width, target_height), bg_color)
             paste_x = (target_width - img.width) // 2
             paste_y = (target_height - img.height) // 2
-
-            # Handle transparency by compositing
-            if img.mode == 'RGBA':
-                temp_canvas = Image.new('RGB', (target_width, target_height), self.background_color)
-                temp_canvas.paste(img, (paste_x, paste_y), img)
-                canvas = temp_canvas
-            else:
-                canvas.paste(img, (paste_x, paste_y))
-
-            # Close the image file
+            canvas.paste(img, (paste_x, paste_y), img)
             img.close()
-
-            self.logger.debug(f"Successfully loaded and scaled image: {image_path}")
             return canvas
-
         except Exception as e:
             self.logger.error(f"Error loading image {image_path}: {e}")
             return None
 
-    def _calculate_fit_size(self, image_size: Tuple[int, int],
-                           display_size: Tuple[int, int]) -> Tuple[int, int]:
+    def _calculate_fit_size(self, image_size: Tuple[int, int], display_size: Tuple[int, int]) -> Tuple[int, int]:
+        iw, ih = image_size
+        dw, dh = display_size
+        scale = min(dw / iw, dh / ih)
+        return (int(iw * scale), int(ih * scale))
+
+    # ─── Time calculation ─────────────────────────────────────────────────────
+
+    def _calculate_time_remaining(self, target_date_str: str,
+                                   target_time_str: str = "00:00",
+                                   mode: str = "until") -> Dict[str, Any]:
         """
-        Calculate size to fit image within display bounds while preserving aspect ratio.
-        """
-        img_width, img_height = image_size
-        display_width, display_height = display_size
+        Calculate adaptive countdown text.
 
-        # Calculate scaling factor to fit within display
-        scale_x = display_width / img_width
-        scale_y = display_height / img_height
-        scale = min(scale_x, scale_y)
+        Thresholds (until mode):
+          > 2 days   → "N Days"
+          1–2 days   → "Tomorrow"
+          1h – 24h   → "Nh Nm"
+          1m – 1h    → "Nm"
+          < 1m       → "NOW!"
+          past       → "Nd ago"
 
-        return (int(img_width * scale), int(img_height * scale))
-
-    def _calculate_time_remaining(self, target_date_str: str) -> Dict[str, Any]:
-        """
-        Calculate time remaining until target date.
-
-        Args:
-            target_date_str: Target date in YYYY-MM-DD format
-
-        Returns:
-            Dictionary with days, hours, minutes, is_expired, and formatted text
+        Since mode mirrors: shows elapsed time using the same granularity.
         """
         try:
-            # Parse target date
-            target_date = datetime.strptime(target_date_str, '%Y-%m-%d').date()
-            today = date.today()
+            target_time = datetime.strptime(target_time_str or "00:00", '%H:%M').time()
+            target_dt = datetime.combine(
+                datetime.strptime(target_date_str, '%Y-%m-%d').date(),
+                target_time
+            )
+            now = datetime.now()
+            delta_seconds = (target_dt - now).total_seconds()
 
-            # Calculate difference
-            delta = target_date - today
-
-            if delta.days < 0:
-                # Past date
+            if mode == "since":
+                elapsed = abs(delta_seconds)
+                text = self._format_elapsed(elapsed)
                 return {
-                    'days': abs(delta.days),
+                    'days': int(elapsed // 86400),
+                    'hours': int((elapsed % 86400) // 3600),
+                    'minutes': int((elapsed % 3600) // 60),
+                    'total_seconds': elapsed,
+                    'is_expired': False,
+                    'is_today': elapsed < 86400,
+                    'text': text,
+                }
+
+            # "until" mode
+            if delta_seconds < 0:
+                elapsed = abs(delta_seconds)
+                days_ago = int(elapsed // 86400)
+                return {
+                    'days': days_ago,
                     'hours': 0,
                     'minutes': 0,
+                    'total_seconds': delta_seconds,
                     'is_expired': True,
                     'is_today': False,
-                    'text': f"{abs(delta.days)}d ago"
-                }
-            elif delta.days == 0:
-                # Today
-                return {
-                    'days': 0,
-                    'hours': 0,
-                    'minutes': 0,
-                    'is_expired': False,
-                    'is_today': True,
-                    'text': "TODAY!"
-                }
-            elif delta.days == 1:
-                # Tomorrow
-                return {
-                    'days': 1,
-                    'hours': 0,
-                    'minutes': 0,
-                    'is_expired': False,
-                    'is_today': False,
-                    'text': "1 Day"
-                }
-            else:
-                # Future date
-                return {
-                    'days': delta.days,
-                    'hours': 0,
-                    'minutes': 0,
-                    'is_expired': False,
-                    'is_today': False,
-                    'text': f"{delta.days} Days"
+                    'text': f"{days_ago}d ago",
                 }
 
-        except Exception as e:
-            self.logger.error(f"Error calculating time remaining for {target_date_str}: {e}")
+            text = self._format_remaining(delta_seconds)
+            is_today = delta_seconds < 86400
             return {
-                'days': 0,
-                'hours': 0,
-                'minutes': 0,
+                'days': int(delta_seconds // 86400),
+                'hours': int((delta_seconds % 86400) // 3600),
+                'minutes': int((delta_seconds % 3600) // 60),
+                'total_seconds': delta_seconds,
                 'is_expired': False,
-                'is_today': False,
-                'text': "Error"
+                'is_today': is_today,
+                'text': text,
             }
 
+        except Exception as e:
+            self.logger.error(f"Error calculating time for {target_date_str}: {e}")
+            return {'days': 0, 'hours': 0, 'minutes': 0, 'total_seconds': 0,
+                    'is_expired': False, 'is_today': False, 'text': "Error"}
+
+    def _format_remaining(self, seconds: float) -> str:
+        if seconds < 60:
+            return "NOW!"
+        if seconds < 3600:
+            return f"{int(seconds // 60)}m"
+        if seconds < 86400:
+            h = int(seconds // 3600)
+            m = int((seconds % 3600) // 60)
+            return f"{h}h {m}m"
+        if seconds < 172800:
+            return "Tomorrow"
+        return f"{int(seconds // 86400)} Days"
+
+    def _format_elapsed(self, seconds: float) -> str:
+        if seconds < 60:
+            return "Just now"
+        if seconds < 3600:
+            return f"{int(seconds // 60)}m ago"
+        if seconds < 86400:
+            h = int(seconds // 3600)
+            m = int((seconds % 3600) // 60)
+            return f"{h}h {m}m"
+        days = int(seconds // 86400)
+        return f"{days} Days"
+
+    # ─── Rotation helpers ─────────────────────────────────────────────────────
+
     def _get_enabled_countdowns(self) -> List[Dict[str, Any]]:
-        """Get list of enabled countdowns, filtered by show_expired setting."""
         enabled = []
-        for countdown in self.countdowns:
-            if not countdown.get('enabled', True):
+        for cd in self.countdowns:
+            if not cd.get('enabled', True):
                 continue
-
-            # Check if expired
-            countdown_id = countdown.get('id')
-            if countdown_id in self.countdown_values:
-                is_expired = self.countdown_values[countdown_id].get('is_expired', False)
-                if is_expired and not self.show_expired:
+            cd_id = cd.get('id')
+            if cd_id in self.countdown_values:
+                is_expired = self.countdown_values[cd_id].get('is_expired', False)
+                mode = cd.get('mode', 'until')
+                if mode == 'until' and is_expired and not self.show_expired:
                     continue
-
-            enabled.append(countdown)
-
+            enabled.append(cd)
         return enabled
 
     def _get_current_countdown(self) -> Optional[Dict[str, Any]]:
-        """Get the current countdown to display based on rotation."""
         enabled = self._get_enabled_countdowns()
-
         if not enabled:
             return None
-
-        # Ensure index is within bounds
         if self.current_countdown_index >= len(enabled):
             self.current_countdown_index = 0
-
         return enabled[self.current_countdown_index]
 
     def _rotate_to_next_countdown(self) -> None:
-        """Rotate to the next enabled countdown."""
         enabled = self._get_enabled_countdowns()
-
         if not enabled:
             return
-
         self.current_countdown_index = (self.current_countdown_index + 1) % len(enabled)
         self.last_rotation_time = time.time()
-        self.logger.debug(f"Rotated to countdown index {self.current_countdown_index}")
+
+    # ─── BasePlugin lifecycle ─────────────────────────────────────────────────
 
     def update(self) -> None:
-        """
-        Update countdown calculations.
-        Recalculates time remaining for all countdowns.
-        """
         try:
-            # Recalculate all countdown values
-            for countdown in self.countdowns:
-                countdown_id = countdown.get('id')
-                target_date = countdown.get('target_date')
-
-                if countdown_id and target_date:
-                    self.countdown_values[countdown_id] = self._calculate_time_remaining(target_date)
-
+            for cd in self.countdowns:
+                cd_id = cd.get('id')
+                target_date = cd.get('target_date')
+                if cd_id and target_date:
+                    self.countdown_values[cd_id] = self._calculate_time_remaining(
+                        target_date,
+                        cd.get('target_time', '00:00'),
+                        cd.get('mode', 'until')
+                    )
             self.logger.debug(f"Updated {len(self.countdown_values)} countdown values")
-
         except Exception as e:
             self.logger.error(f"Error updating countdowns: {e}")
 
     def display(self, force_clear: bool = False) -> None:
-        """
-        Display the current countdown on the LED matrix.
-
-        Layout: Image on left 1/3rd, text on right 2/3rds
-
-        Args:
-            force_clear: If True, clear display before rendering
-        """
-        # Get current countdown
-        current_countdown = self._get_current_countdown()
-
-        if not current_countdown:
+        current = self._get_current_countdown()
+        if not current:
             self._display_no_countdowns()
             return
 
         try:
-            # Get display dimensions
-            display_width = self.display_manager.matrix.width
-            display_height = self.display_manager.matrix.height
+            dw = self.display_manager.matrix.width
+            dh = self.display_manager.matrix.height
 
-            # Calculate layout: left 1/3 for image, right 2/3 for text
-            image_width = display_width // 3
-            text_width = display_width - image_width
+            cd_id       = current.get('id')
+            cd_name     = current.get('name', 'Countdown')
+            cd_image    = current.get('image_path', '')
+            layout      = current.get('layout', {})
+            style       = current.get('style', {})
 
-            # Create base canvas
-            canvas = Image.new('RGB', (display_width, display_height), self.background_color)
+            # Effective style: per-countdown overrides fall back to global
+            eff_font_family    = style.get('font_family')    or self.font_family
+            eff_font_size      = style.get('font_size')      or self.font_size
+            eff_font_color     = style.get('font_color')     or self.font_color
+            eff_name_font_size = style.get('name_font_size') or self.name_font_size
+            eff_name_color     = style.get('name_font_color')or self.name_font_color
+            eff_bg             = style.get('background_color') or self.background_color
 
-            # Get countdown info
-            countdown_id = current_countdown.get('id')
-            countdown_name = current_countdown.get('name', 'Countdown')
+            # Layout preset + per-pixel overrides
+            layout_preset = current.get('layout_preset', 'image-left')
+            text_align    = current.get('text_align', 'center')
 
-            # Countdown image path is normalized in _normalize_countdowns.
-            countdown_image = current_countdown.get('image_path')
+            # Pixel overrides (from advanced modal) take precedence over preset
+            _has_px_override = any(layout.get(k) for k in ('image_x','image_y','image_width','image_height'))
 
-            # Load and draw image on left 1/3rd
-            if countdown_image:
-                # Check cache first
-                if countdown_id not in self.cached_images:
-                    loaded_img = self._load_and_scale_image(countdown_image, image_width, display_height)
-                    if loaded_img:
-                        self.cached_images[countdown_id] = loaded_img
+            img_w = layout.get('image_width')  or (dw // 3)
+            img_h = layout.get('image_height') or dh
 
-                # Paste cached image
-                if countdown_id in self.cached_images:
-                    canvas.paste(self.cached_images[countdown_id], (0, 0))
+            if _has_px_override:
+                # User set explicit pixel positions — honour them directly
+                img_x = layout.get('image_x', 0)
+                img_y = layout.get('image_y', 0)
+                text_area_x = img_x + img_w if cd_image else 0
+                text_area_w = dw - text_area_x
+            elif layout_preset == 'image-left':
+                img_x, img_y = 0, 0
+                text_area_x  = img_w if cd_image else 0
+                text_area_w  = dw - text_area_x
+            elif layout_preset == 'image-right':
+                img_x, img_y = dw - img_w, 0
+                text_area_x  = 0
+                text_area_w  = img_x if cd_image else dw
+            elif layout_preset in ('text-only', 'image-only'):
+                img_x, img_y = 0, 0
+                text_area_x  = 0
+                text_area_w  = dw
+            else:
+                img_x, img_y = 0, 0
+                text_area_x  = img_w if cd_image else 0
+                text_area_w  = dw - text_area_x
 
-            # Get countdown value
-            countdown_data = self.countdown_values.get(countdown_id, {'text': '---', 'is_today': False})
-            countdown_text = countdown_data.get('text', '---')
-            is_today = countdown_data.get('is_today', False)
+            # Vertical position overrides or smart defaults
+            name_y  = layout.get('name_y')  if layout.get('name_y')  is not None else (dh // 3)
+            value_y = layout.get('value_y') if layout.get('value_y') is not None else ((dh * 2) // 3)
 
-            # Clear display if requested
+            # Horizontal position: respect pixel override, then derive from text_align
+            if layout.get('name_x') is not None:
+                name_x, value_x = layout['name_x'], layout.get('value_x', layout['name_x'])
+                _text_centered  = True
+            elif text_align == 'left':
+                name_x = value_x = text_area_x + 4
+                _text_centered  = False
+            elif text_align == 'right':
+                name_x = value_x = None  # computed per-text below
+                _text_centered  = False
+            else:  # center (default)
+                name_x = value_x = text_area_x + text_area_w // 2
+                _text_centered  = True
+
+            # Build canvas
+            canvas = Image.new('RGB', (dw, dh), eff_bg)
+
+            # Draw image (skip if preset is text-only)
+            show_image = bool(cd_image) and layout_preset != 'text-only'
+            show_text  = layout_preset != 'image-only'
+
+            if show_image:
+                cache_key = f"{cd_id}_{layout_preset}_{img_w}_{img_h}"
+                if cache_key not in self.cached_images:
+                    loaded = self._load_and_scale_image(cd_image, img_w, img_h, eff_bg)
+                    if loaded:
+                        self.cached_images[cache_key] = loaded
+                if cache_key in self.cached_images:
+                    canvas.paste(self.cached_images[cache_key], (img_x, img_y))
+
+            # Get countdown text
+            cd_data = self.countdown_values.get(cd_id, {'text': '---', 'is_today': False})
+            cd_text = cd_data.get('text', '---')
+            is_today = cd_data.get('is_today', False)
+
             if force_clear:
                 self.display_manager.clear()
 
-            # Set canvas on display manager
             self.display_manager.image = canvas.copy()
+            # Refresh draw context — assigning .image doesn't update .draw automatically.
+            self.display_manager.draw = ImageDraw.Draw(self.display_manager.image)
 
-            # Get fonts
-            try:
-                if hasattr(self.plugin_manager, 'font_manager'):
-                    font_manager = self.plugin_manager.font_manager
+            # Resolve fonts (per-countdown scoped keys enable independent sizing)
+            name_font  = self._resolve_font(cd_id, 'name',  eff_font_family, eff_name_font_size, eff_name_color  or (200, 200, 200))
+            value_font = self._resolve_font(cd_id, 'value', eff_font_family, eff_font_size,       eff_font_color  or (255, 255, 255))
 
-                    name_font = font_manager.resolve_font(
-                        element_key=f"{self.plugin_id}.countdown_name",
-                        family=self.font_family,
-                        size_px=self.name_font_size
-                    )
+            # For "now/today" events use a bright yellow highlight
+            if is_today and value_font:
+                today_font = self._resolve_font(cd_id, 'value_today', eff_font_family, eff_font_size, (255, 255, 0))
+                if today_font:
+                    value_font = today_font
 
-                    value_font = font_manager.resolve_font(
-                        element_key=f"{self.plugin_id}.countdown_value",
-                        family=self.font_family,
-                        size_px=self.font_size
-                    )
+            if show_text:
+                if text_align == 'right':
+                    # Compute right-edge x per-text using PIL textbbox
+                    def _right_x(text, font):
+                        try:
+                            bbox = self.display_manager.draw.textbbox((0, 0), text, font=font)
+                            tw = bbox[2] - bbox[0]
+                        except Exception:
+                            tw = 0
+                        return text_area_x + text_area_w - tw - 4
+
+                    if name_font:
+                        self.display_manager.draw_text(cd_name, x=_right_x(cd_name, name_font),  y=name_y,  font=name_font,  centered=False)
+                    if value_font:
+                        self.display_manager.draw_text(cd_text, x=_right_x(cd_text, value_font), y=value_y, font=value_font, centered=False)
                 else:
-                    name_font = None
-                    value_font = None
-            except Exception as e:
-                self.logger.warning(f"Error getting fonts: {e}")
-                name_font = None
-                value_font = None
+                    if name_font:
+                        self.display_manager.draw_text(cd_name, x=name_x,  y=name_y,  font=name_font,  centered=_text_centered)
+                    if value_font:
+                        self.display_manager.draw_text(cd_text, x=value_x, y=value_y, font=value_font, centered=_text_centered)
 
-            # Draw text on right 2/3rds
-            text_x_start = image_width
-            text_center_x = text_x_start + (text_width // 2)
-
-            # Position name in upper portion of text area
-            name_y = display_height // 3
-
-            # Position countdown value in lower portion of text area
-            value_y = (display_height * 2) // 3
-
-            # Draw countdown name
-            if name_font:
-                self.display_manager.draw_text(
-                    countdown_name,
-                    x=text_center_x,
-                    y=name_y,
-                    font=name_font,
-                    centered=True
-                )
-
-            # Draw countdown value (highlight if today)
-            if value_font:
-                # Use different color if today
-                if is_today:
-                    # Create a special "today" font with bright color
-                    try:
-                        if hasattr(self.plugin_manager, 'font_manager'):
-                            today_font = self.plugin_manager.font_manager.resolve_font(
-                                element_key=f"{self.plugin_id}.countdown_value",
-                                family=self.font_family,
-                                size_px=self.font_size,
-                                color=(255, 255, 0)  # Bright yellow for today
-                            )
-                            value_font = today_font
-                    except Exception:
-                        pass
-
-                self.display_manager.draw_text(
-                    countdown_text,
-                    x=text_center_x,
-                    y=value_y,
-                    font=value_font,
-                    centered=True
-                )
-
-            # Update the display
             self.display_manager.update_display()
-
-            self.logger.debug(f"Displayed countdown: {countdown_name} - {countdown_text}")
+            self.logger.debug(f"Displayed: {cd_name} — {cd_text} [{layout_preset}/{text_align}]")
 
         except Exception as e:
             self.logger.error(f"Error displaying countdown: {e}")
             self._display_error()
 
     def _display_no_countdowns(self) -> None:
-        """Display message when no countdowns are enabled."""
         try:
-            display_width = self.display_manager.matrix.width
-            display_height = self.display_manager.matrix.height
-
-            img = Image.new('RGB', (display_width, display_height), self.background_color)
+            dw = self.display_manager.matrix.width
+            dh = self.display_manager.matrix.height
+            img = Image.new('RGB', (dw, dh), self.background_color)
             self.display_manager.image = img.copy()
-
-            # Get font
-            try:
-                if hasattr(self.plugin_manager, 'font_manager'):
-                    font = self.plugin_manager.font_manager.resolve_font(
-                        element_key=f"{self.plugin_id}.countdown_name",
-                        family=self.font_family,
-                        size_px=self.name_font_size
-                    )
-                else:
-                    font = None
-            except Exception:
-                font = None
-
+            self.display_manager.draw = ImageDraw.Draw(self.display_manager.image)
+            font = self._resolve_font('_system', 'name', self.font_family, self.name_font_size,
+                                       self.name_font_color or (200, 200, 200))
             if font:
-                self.display_manager.draw_text(
-                    "No Active",
-                    x=display_width // 2,
-                    y=display_height // 3,
-                    font=font,
-                    centered=True
-                )
-                self.display_manager.draw_text(
-                    "Countdowns",
-                    x=display_width // 2,
-                    y=(display_height * 2) // 3,
-                    font=font,
-                    centered=True
-                )
-
+                self.display_manager.draw_text("No Active",  x=dw // 2, y=dh // 3,        font=font, centered=True)
+                self.display_manager.draw_text("Countdowns", x=dw // 2, y=(dh * 2) // 3,  font=font, centered=True)
             self.display_manager.update_display()
-
         except Exception as e:
-            self.logger.error(f"Error displaying no countdowns message: {e}")
+            self.logger.error(f"Error displaying no-countdowns message: {e}")
 
     def _display_error(self) -> None:
-        """Display error message when something goes wrong."""
         try:
-            display_width = self.display_manager.matrix.width
-            display_height = self.display_manager.matrix.height
-
-            img = Image.new('RGB', (display_width, display_height), (0, 0, 0))
+            dw = self.display_manager.matrix.width
+            dh = self.display_manager.matrix.height
+            img = Image.new('RGB', (dw, dh), (0, 0, 0))
             self.display_manager.image = img.copy()
-
-            # Get error font
-            try:
-                if hasattr(self.plugin_manager, 'font_manager'):
-                    error_font = self.plugin_manager.font_manager.resolve_font(
-                        element_key=f"{self.plugin_id}.error",
-                        family="press_start",
-                        size_px=8
-                    )
-                else:
-                    error_font = None
-            except Exception:
-                error_font = None
-
-            if error_font:
-                self.display_manager.draw_text(
-                    "Countdown",
-                    x=display_width // 2,
-                    y=display_height // 3,
-                    font=error_font,
-                    centered=True
-                )
-                self.display_manager.draw_text(
-                    "Error",
-                    x=display_width // 2,
-                    y=(display_height * 2) // 3,
-                    font=error_font,
-                    centered=True
-                )
-
+            self.display_manager.draw = ImageDraw.Draw(self.display_manager.image)
+            font = self._resolve_font('_system', 'error', 'press_start', 8, (255, 0, 0))
+            if font:
+                self.display_manager.draw_text("Countdown", x=dw // 2, y=dh // 3,       font=font, centered=True)
+                self.display_manager.draw_text("Error",     x=dw // 2, y=(dh * 2) // 3, font=font, centered=True)
             self.display_manager.update_display()
-
         except Exception as e:
             self.logger.error(f"Error displaying error message: {e}")
 
+    # ─── Duration / rotation ─────────────────────────────────────────────────
+
     def get_display_duration(self) -> float:
-        """Get display duration from config."""
         return self.config.get('display_duration', 15.0)
 
     def supports_dynamic_duration(self) -> bool:
-        """Support dynamic duration for countdown rotation."""
         return True
 
     def is_cycle_complete(self) -> bool:
-        """Check if we should rotate to next countdown."""
-        current_time = time.time()
-        elapsed = current_time - self.last_rotation_time
-        duration = self.get_display_duration()
-
-        if elapsed >= duration:
+        elapsed = time.time() - self.last_rotation_time
+        if elapsed >= self.get_display_duration():
             self._rotate_to_next_countdown()
             return True
-
         return False
 
     def reset_cycle_state(self) -> None:
-        """Reset rotation state."""
         self.last_rotation_time = time.time()
 
+    # ─── Config management ────────────────────────────────────────────────────
+
     def validate_config(self) -> bool:
-        """Validate plugin configuration."""
         if not super().validate_config():
             return False
-
-        # Validate countdowns. IDs are auto-generated during normalization.
-        for countdown in self.countdowns:
-            if not isinstance(countdown, dict):
-                self.logger.error(f"Countdown entry must be a dict: {countdown}")
+        for cd in self.countdowns:
+            if not isinstance(cd, dict):
+                self.logger.error(f"Countdown entry must be a dict: {cd}")
                 return False
-
-            if not countdown.get('name'):
-                self.logger.error(f"Countdown {countdown.get('id')} missing 'name' field")
+            if not cd.get('name'):
+                self.logger.error(f"Countdown {cd.get('id')} missing 'name'")
                 return False
-
-            if not countdown.get('target_date'):
-                self.logger.error(f"Countdown {countdown.get('id')} missing 'target_date' field")
+            if not cd.get('target_date'):
+                self.logger.error(f"Countdown {cd.get('id')} missing 'target_date'")
                 return False
-
-            # Validate date format
             try:
-                datetime.strptime(countdown['target_date'], '%Y-%m-%d')
+                datetime.strptime(cd['target_date'], '%Y-%m-%d')
             except ValueError:
-                self.logger.error(f"Invalid date format for countdown {countdown.get('id')}: {countdown['target_date']}")
+                self.logger.error(f"Invalid date format for {cd.get('id')}: {cd['target_date']}")
                 return False
-
+            target_time = cd.get('target_time', '00:00') or '00:00'
+            try:
+                datetime.strptime(target_time, '%H:%M')
+            except ValueError:
+                self.logger.error(f"Invalid time format for {cd.get('id')}: {target_time}")
+                return False
+            if cd.get('mode') not in ('until', 'since'):
+                self.logger.error(f"Invalid mode for {cd.get('id')}: {cd.get('mode')}")
+                return False
         return True
 
     def on_config_change(self, new_config: Dict[str, Any]) -> None:
-        """Called when plugin configuration is updated."""
         super().on_config_change(new_config)
 
-        old_signature = getattr(self, "_countdown_signature", None)
+        old_signature = getattr(self, '_countdown_signature', None)
 
-        # Update image-related settings that affect rendering/cache.
-        self.fit_to_display = self._parse_bool(self.config.get('fit_to_display', True), default=True)
-        self.preserve_aspect_ratio = self._parse_bool(self.config.get('preserve_aspect_ratio', True), default=True)
-        self.show_expired = self._parse_bool(self.config.get('show_expired', False), default=False)
-        self.background_color = self._parse_color(self.config.get('background_color', [0, 0, 0]), (0, 0, 0))
+        self.fit_to_display      = self._parse_bool(self.config.get('fit_to_display', True), True)
+        self.preserve_aspect_ratio = self._parse_bool(self.config.get('preserve_aspect_ratio', True), True)
+        self.show_expired        = self._parse_bool(self.config.get('show_expired', False), False)
+        self.background_color    = self._parse_color(self.config.get('background_color', [0, 0, 0]), (0, 0, 0))
 
-        # Update countdowns using normalization.
+        self.font_family         = self.config.get('font_family', 'press_start')
+        self.font_size           = self.config.get('font_size', 8)
+        self.font_color          = self._parse_color(self.config.get('font_color', [255, 255, 255]), (255, 255, 255))
+        self.name_font_size      = self.config.get('name_font_size', 8)
+        self.name_font_color     = self._parse_color(self.config.get('name_font_color', [200, 200, 200]), (200, 200, 200))
+
         self.countdowns = self._normalize_countdowns(self.config.get('countdowns', []))
-
-        # Update font settings
-        self.font_family = self.config.get('font_family', 'press_start')
-        self.font_size = self.config.get('font_size', 8)
-        self.font_color = self._parse_color(self.config.get('font_color', [255, 255, 255]), (255, 255, 255))
-        self.name_font_size = self.config.get('name_font_size', 8)
-        self.name_font_color = self._parse_color(self.config.get('name_font_color', [200, 200, 200]), (200, 200, 200))
-
-        # Re-register fonts
         self._register_fonts()
 
-        # Clear image cache if countdown metadata or image-affecting settings changed.
         self._countdown_signature = self._build_countdown_signature(self.countdowns)
         if self._countdown_signature != old_signature:
             self.cached_images.clear()
             self.current_countdown_index = 0
 
-        # Recalculate countdown values
         self.update()
-
         self.logger.info(f"Config updated: {len(self.countdowns)} countdowns")
 
     def get_info(self) -> Dict[str, Any]:
-        """Return plugin info for web UI."""
         info = super().get_info()
         info.update({
             'countdown_count': len(self.countdowns),
             'enabled_count': len(self._get_enabled_countdowns()),
             'current_index': self.current_countdown_index,
-            'cached_images': len(self.cached_images)
+            'cached_images': len(self.cached_images),
         })
         return info
 
     def cleanup(self) -> None:
-        """Cleanup resources."""
         self.cached_images.clear()
         self.countdown_values.clear()
         self.logger.info("Countdown plugin cleaned up")
