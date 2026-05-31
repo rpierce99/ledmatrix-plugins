@@ -6,9 +6,8 @@ Outputs one PNG per mode per display size, plus a composite sheet.
 Usage:  python3 render_preview.py
 """
 
-import math, os, sys
+import math, os
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -43,7 +42,7 @@ def _lerp(c1, c2, t):
 
 def _safe_iso(s):
     try:    return datetime.fromisoformat(s)
-    except: return None
+    except Exception: return None
 
 def _layout(dw, dh):
     bar_w  = max(8, min(32, int(dw * 0.13)))
@@ -180,7 +179,7 @@ def _fmtt(iso):
         dt = datetime.fromisoformat(iso)
         hr = dt.hour % 12 or 12
         return f"{hr}:{dt.minute:02d}{'a' if dt.hour<12 else 'p'}"
-    except: return '--'
+    except Exception: return '--'
 
 # ── Mode renderers ─────────────────────────────────────────────────────────────
 
@@ -322,7 +321,7 @@ def render_chart(dw, dh, hilo, hourly):
             ly = max(cy, min(cy+ch-8, (ty2-9) if is_high else (ty2+2)))
             draw.text((lx, ly), sym, fill=lc, font=FONT_TINY)
             draw.line([(tx2, ty2-1),(tx2, ty2+1)], fill=(255,255,255))
-        except: pass
+        except Exception: pass
 
     # Current time — fix at 10:30 for preview
     now_frac = 10.5
@@ -359,7 +358,6 @@ def render_stats(dw, dh, hilo):
     # Waxing gibbous for the preview
     phase        = 0.38
     phase_name   = 'Waxing Gibbous'
-    is_spring    = False
     spring_label = 'NEAP TIDE'
     spring_color = C_LOW
     cycle_pct    = 47

@@ -13,8 +13,8 @@ Find your station: tidesandcurrents.noaa.gov/stations.html
 """
 
 import math, time, logging
-from datetime import datetime, date, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from datetime import datetime, date
+from typing import Dict, List, Optional, Tuple
 
 import requests
 from PIL import Image, ImageDraw
@@ -66,7 +66,7 @@ def _lerp(c1, c2, t):
 
 def _safe_iso(s):
     try:    return datetime.fromisoformat(s)
-    except: return None
+    except Exception: return None
 
 
 # ── Layout helper ──────────────────────────────────────────────────────────────
@@ -101,7 +101,7 @@ class TidePlugin(BasePlugin):
 
         def _rgb(k, d):
             try:   return tuple(max(0, min(255, int(c))) for c in config.get(k, list(d)))
-            except: return d
+            except Exception: return d
 
         self.station_id   = str(config.get('station_id', '')).strip()
         self.station_name = str(config.get('station_name', '') or '').strip()
@@ -194,7 +194,7 @@ class TidePlugin(BasePlugin):
             for x in d.get('predictions', []):
                 try: out.append({'dt':datetime.strptime(x['t'],'%Y-%m-%d %H:%M').isoformat(),
                                  'height':float(x['v']),'type':x.get('type','?')})
-                except: pass
+                except Exception: pass
             return out or None
         except Exception as e: self.logger.error("hilo: %s", e); return None
 
@@ -208,7 +208,7 @@ class TidePlugin(BasePlugin):
             h  = []
             for x in d.get('predictions',[]):
                 try: h.append(float(x['v']))
-                except: h.append(0.0)
+                except Exception: h.append(0.0)
             h = h[:24]
             while len(h) < 24: h.append(h[-1] if h else 0.0)
             return h
@@ -222,7 +222,7 @@ class TidePlugin(BasePlugin):
             if 'error' in d: return None
             data = d.get('data',[])
             return float(data[-1]['v']) if data else None
-        except: return None
+        except Exception: return None
 
     # ── Derived ─────────────────────────────────────────────────────────────────
 
@@ -281,22 +281,26 @@ class TidePlugin(BasePlugin):
             dt = datetime.fromisoformat(iso)
             hr = dt.hour%12 or 12
             return f"{hr}:{dt.minute:02d}{'a' if dt.hour<12 else 'p'}"
-        except: return '--'
+        except Exception: return '--'
 
     def _name(self): return (self.station_name or self.station_id)[:14]
 
     # ── Drawing helpers ─────────────────────────────────────────────────────────
 
     def _draw_stars(self, draw, dw: int, sky_h: int) -> None:
-        """Scatter faint star-like pixels in the sky area for atmosphere."""
-        import random
-        rng = random.Random(42)  # fixed seed = stable starfield
-        n   = max(0, (dw * sky_h) // 120)
-        for _ in range(n):
-            sx = rng.randint(0, dw-1)
-            sy = rng.randint(0, sky_h-2)
-            b  = rng.randint(18, 50)
-            draw.point((sx, sy), fill=(b, b+8, b+22))
+        """Scatter faint star-like pixels in the sky area for atmosphere.
+
+        Uses a Knuth multiplicative hash for deterministic star positions
+        without importing the random module (avoids cryptographic-context warnings).
+        """
+        n = max(0, (dw * sky_h) // 120)
+        h = 2654435761  # Knuth multiplicative hash constant
+        for i in range(n):
+            h = (h ^ (i * 2246822519 + 1)) & 0xFFFFFFFF
+            sx = h % dw
+            sy = (h >> 16) % max(1, sky_h - 2)
+            b  = 18 + (h >> 8) % 34
+            draw.point((sx, sy), fill=(b, b + 8, b + 22))
 
     def _wave_y(self, px: int) -> float:
         """Composite multi-frequency wave giving a natural, non-mechanical surface."""
@@ -399,12 +403,12 @@ class TidePlugin(BasePlugin):
     def _txt(self, x, y, text, color=C_TEXT, small=True):
         font = self.display_manager.extra_small_font if small else self.display_manager.small_font
         try: self.display_manager.draw_text(text, x=x, y=y, font=font, color=color, centered=False)
-        except: pass
+        except Exception: pass
 
     def _txtc(self, cx, y, text, color=C_TEXT, small=True):
         font = self.display_manager.extra_small_font if small else self.display_manager.small_font
         try: self.display_manager.draw_text(text, x=cx, y=y, font=font, color=color, centered=True)
-        except: pass
+        except Exception: pass
 
     # ── Placeholder screens ─────────────────────────────────────────────────────
 
@@ -590,7 +594,7 @@ class TidePlugin(BasePlugin):
                 ly = max(cy, min(cy+ch-8, (ty-9) if is_high else (ty+2)))
                 draw.text((lx,ly), sym, fill=lc)
                 draw.line([(tx,ty-1),(tx,ty+1)], fill=(255,255,255))
-            except: pass
+            except Exception: pass
 
         # Current-time marker
         now_frac = datetime.now().hour + datetime.now().minute/60.0
@@ -640,7 +644,7 @@ class TidePlugin(BasePlugin):
                 tot  = (n_dt-p_dt).total_seconds()
                 ela  = (now-p_dt).total_seconds()
                 if tot > 0: cycle_pct = max(0, min(100, int(ela/tot*100)))
-            except: pass
+            except Exception: pass
 
         # Left side: moon + text
         moon_r  = max(4, min(10, dh//5))
@@ -708,7 +712,7 @@ class TidePlugin(BasePlugin):
         super().on_config_change(new_config)
         def _rgb(k, d):
             try:   return tuple(max(0, min(255, int(c))) for c in self.config.get(k, list(d)))
-            except: return d
+            except Exception: return d
         self.station_id   = str(self.config.get('station_id',   '')).strip()
         self.station_name = str(self.config.get('station_name', '') or '').strip()
         self.units        = self.config.get('units', 'imperial')
