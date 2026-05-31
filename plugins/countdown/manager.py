@@ -452,9 +452,9 @@ class CountdownPlugin(BasePlugin):
         if seconds < 86400:
             h = int(seconds // 3600)
             m = int((seconds % 3600) // 60)
-            return f"{h}h {m}m"
+            return f"{h}h {m}m ago"
         days = int(seconds // 86400)
-        return f"{days} Days"
+        return f"{days} Days ago"
 
     # ─── Rotation helpers ─────────────────────────────────────────────────────
 
