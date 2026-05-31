@@ -194,7 +194,7 @@ class TidePlugin(BasePlugin):
             for x in d.get('predictions', []):
                 try: out.append({'dt':datetime.strptime(x['t'],'%Y-%m-%d %H:%M').isoformat(),
                                  'height':float(x['v']),'type':x.get('type','?')})
-                except Exception: pass
+                except Exception as _e: self.logger.debug("hilo entry skip: %s", _e)
             return out or None
         except Exception as e: self.logger.error("hilo: %s", e); return None
 
@@ -403,12 +403,12 @@ class TidePlugin(BasePlugin):
     def _txt(self, x, y, text, color=C_TEXT, small=True):
         font = self.display_manager.extra_small_font if small else self.display_manager.small_font
         try: self.display_manager.draw_text(text, x=x, y=y, font=font, color=color, centered=False)
-        except Exception: pass
+        except Exception as _e: self.logger.debug("draw_text: %s", _e)
 
     def _txtc(self, cx, y, text, color=C_TEXT, small=True):
         font = self.display_manager.extra_small_font if small else self.display_manager.small_font
         try: self.display_manager.draw_text(text, x=cx, y=y, font=font, color=color, centered=True)
-        except Exception: pass
+        except Exception as _e: self.logger.debug("draw_text: %s", _e)
 
     # ── Placeholder screens ─────────────────────────────────────────────────────
 
@@ -594,7 +594,7 @@ class TidePlugin(BasePlugin):
                 ly = max(cy, min(cy+ch-8, (ty-9) if is_high else (ty+2)))
                 draw.text((lx,ly), sym, fill=lc)
                 draw.line([(tx,ty-1),(tx,ty+1)], fill=(255,255,255))
-            except Exception: pass
+            except Exception as _e: self.logger.debug("chart label: %s", _e)
 
         # Current-time marker
         now_frac = datetime.now().hour + datetime.now().minute/60.0
@@ -644,7 +644,7 @@ class TidePlugin(BasePlugin):
                 tot  = (n_dt-p_dt).total_seconds()
                 ela  = (now-p_dt).total_seconds()
                 if tot > 0: cycle_pct = max(0, min(100, int(ela/tot*100)))
-            except Exception: pass
+            except Exception as _e: self.logger.debug("cycle_pct: %s", _e)
 
         # Left side: moon + text
         moon_r  = max(4, min(10, dh//5))

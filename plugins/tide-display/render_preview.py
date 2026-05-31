@@ -101,8 +101,8 @@ def _load_fonts():
                 tiny  = ImageFont.truetype(path, 6)
                 small = ImageFont.truetype(path, 7)
                 return tiny, small
-            except Exception:
-                pass
+            except OSError:
+                continue
     # Fallback to PIL default
     def_ = ImageFont.load_default()
     return def_, def_
@@ -321,7 +321,8 @@ def render_chart(dw, dh, hilo, hourly):
             ly = max(cy, min(cy+ch-8, (ty2-9) if is_high else (ty2+2)))
             draw.text((lx, ly), sym, fill=lc, font=FONT_TINY)
             draw.line([(tx2, ty2-1),(tx2, ty2+1)], fill=(255,255,255))
-        except Exception: pass
+        except (KeyError, ValueError, TypeError):
+            continue
 
     # Current time — fix at 10:30 for preview
     now_frac = 10.5
