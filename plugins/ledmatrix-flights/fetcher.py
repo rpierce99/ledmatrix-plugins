@@ -494,7 +494,9 @@ class AdsbNetFetcher(AircraftFetcher):
             logger.exception(f"[Flight Tracker] {self.provider} fetch failed")
             return None
 
-        aircraft_list = data.get("ac", [])
+        # adsb.lol returns aircraft under "ac"; adsb.fi's opendata API uses
+        # "aircraft". Accept either so both providers work.
+        aircraft_list = data.get("ac") or data.get("aircraft") or []
         if not aircraft_list:
             logger.info(f"[Flight Tracker] {self.provider}: no aircraft in range ({radius_miles}mi)")
             return {}
