@@ -2188,6 +2188,12 @@ class SportsLive(SportsCore):
         if current_time - self.last_update >= interval:
             self.last_update = current_time
 
+            # Test mode: advance the simulated game instead of fetching real API
+            # data (which would overwrite the seeded live game with an empty list).
+            if _test_mode_attr:
+                self._test_mode_update()
+                return
+
             # Fetch rankings if enabled
             if self.show_ranking:
                 self._fetch_team_rankings()
