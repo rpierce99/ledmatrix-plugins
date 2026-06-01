@@ -597,6 +597,7 @@ class BaseballScoreboardPlugin(BasePlugin if BasePlugin else object):
                     15  # Default per-game duration for upcoming games
                 ),
                 "live_priority": league_config.get("live_priority", False),
+                "test_mode": league_config.get("test_mode", False),
                 "show_favorite_teams_only": show_favorites_only,
                 "show_all_live": show_all_live,
                 "filtering": filtering,
