@@ -61,6 +61,9 @@ def test_test_mode_short_circuits_fetch():
     live = _make_live(test_mode=True)
     called = {"fetch": False, "test_update": False}
 
+    class _StopAfterTestUpdate(Exception):
+        pass
+
     def fake_fetch():
         called["fetch"] = True
         live.live_games = []  # reproduce the original overwrite
@@ -68,16 +71,17 @@ def test_test_mode_short_circuits_fetch():
 
     def fake_test_update():
         called["test_update"] = True
+        # Stop update() right after the short-circuit branch is taken, so we
+        # don't run downstream code that touches attributes a bare instance
+        # lacks. Catching only this sentinel lets any *unexpected* error surface.
+        raise _StopAfterTestUpdate()
 
     live._fetch_data = fake_fetch
     live._test_mode_update = fake_test_update
 
-    # Guard update(): without the fix it enters the live-fetch path and may raise
-    # on attributes a bare instance doesn't have. We assert on the invariants below
-    # so the failure is clear regardless of how far the buggy path gets.
     try:
         live.update()
-    except Exception:  # noqa: BLE001 - downstream attrs irrelevant to this test
+    except _StopAfterTestUpdate:
         pass
 
     assert called["test_update"], "expected _test_mode_update() to run in test mode"
