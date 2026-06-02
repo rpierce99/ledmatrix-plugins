@@ -15,7 +15,6 @@ Run with the core venv:
 """
 
 import logging
-import os
 import sys
 import time
 import types
@@ -75,6 +74,11 @@ def make_plugin(config):
     p.aircraft_data = {}
     p.all_aircraft_data = {}
     p.tracked_flight_data = {}
+
+    # Flight-records state (consulted by stats content checks)
+    p.flight_records_enabled = config.get("flight_records", {}).get("enabled", True)
+    p._closest_record = None
+    p._farthest_record = None
 
     # display() preamble attrs
     p._last_displayed_time = 0.0
@@ -256,6 +260,31 @@ def test_fetch_interval_speeds_up_when_locked():
     assert (p.live_update_interval if p._lock_icao is not None else p.update_interval) == 2
 
 
+def test_update_expires_stale_lock():
+    # Regression: if rendering stops while a flight is locked, _evaluate_proximity()
+    # never runs, so update() itself must expire a timed-out lock — otherwise the
+    # stale lock pins fetching at the live cadence forever.
+    p = make_plugin(_cfg(duration_seconds=20, cooldown_seconds=30))
+    # Minimal attrs for update()'s no-op path (fetch branch skipped via last_fetch).
+    p.data_source = "adsbfi"
+    p.last_fetch = time.time()
+    p.pending_fr24_details = {}
+    p.tracked_flights_cfg = []
+
+    _set(p, _aircraft(0.1, icao="AAA"))
+    p.has_live_content()  # acquire lock
+    assert p._lock_icao == "AAA"
+
+    # Simulate the lock outliving its hard cap with no render path advancing it.
+    p._lock_start = time.time() - 21
+    p.update()
+
+    assert p._lock_icao is None, "update() should expire a timed-out lock"
+    assert p._cooldown_until > time.time(), "expiry should start the cooldown"
+    # Polling falls back to the normal interval once the lock is gone.
+    assert (p.live_update_interval if p._lock_icao is not None else p.update_interval) == p.update_interval
+
+
 # ---------------------------------------------------------------------------
 # display() skip behavior (returns False -> framework rotates on)
 # ---------------------------------------------------------------------------
@@ -284,12 +313,26 @@ def test_display_unknown_slot_skips():
 
 def test_view_has_content():
     p = make_plugin({})
-    assert p._view_has_content("stats") is True  # stats always has something
+    # With no live aircraft and no saved records, the stats slot is empty so the
+    # rotation can skip it instead of dwelling on "No Aircraft".
+    assert p._view_has_content("stats") is False
     assert p._view_has_content("map") is False
     assert p._view_has_content("flight_tracking") is False
+
+    # Live aircraft make stats (and map/area) renderable.
     p.aircraft_data = {"abc123": _aircraft(2.0)}
+    assert p._view_has_content("stats") is True
     assert p._view_has_content("map") is True
     assert p._view_has_content("area") is True
+
+    # A saved record alone is enough for stats, even with no live aircraft.
+    p.aircraft_data = {}
+    p._closest_record = {"callsign": "REC1", "distance_miles": 0.2}
+    assert p._view_has_content("stats") is True
+
+    # ...unless flight records are disabled.
+    p.flight_records_enabled = False
+    assert p._view_has_content("stats") is False
 
 
 def run():

@@ -2030,7 +2030,17 @@ class FlightTrackerPlugin(BasePlugin):
         current_time = time.time()
         is_visible = (current_time - self._last_displayed_time) < self._display_idle_threshold
 
-        # Fetch faster while a flight is locked on so the overhead view's
+        # Expire a timed-out live lock here too, mirroring _evaluate_proximity()'s
+        # release. The render path normally advances the state machine, but if the
+        # plugin stops rendering while a flight is locked, _evaluate_proximity()
+        # never runs and the lock would otherwise pin fetching at the live cadence
+        # forever.
+        if (self._lock_icao is not None
+                and current_time - self._lock_start >= self.proximity_duration):
+            self._lock_icao = None
+            self._cooldown_until = current_time + self.proximity_cooldown
+
+        # Fetch faster while a flight is actively locked on so the overhead view's
         # altitude/distance stay current; fall back to update_interval when idle.
         fetch_interval = self.live_update_interval if self._lock_icao is not None else self.update_interval
 
@@ -3016,7 +3026,13 @@ class FlightTrackerPlugin(BasePlugin):
         instead of dwelling on a blank/"No Aircraft" screen.
         """
         if view == 'stats':
-            return True
+            # Mirror _display_stats()'s "No Aircraft" guard: content exists when
+            # there is live data in range or a saved record to show.
+            stats_pool = self.all_aircraft_data or self.aircraft_data
+            has_records = self.flight_records_enabled and (
+                self._closest_record or self._farthest_record
+            )
+            return bool(stats_pool or has_records)
         if view == 'flight_tracking':
             return bool(self.tracked_flight_data)
         # map, area
