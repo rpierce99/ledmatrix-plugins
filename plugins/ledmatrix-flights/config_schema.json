@@ -270,7 +270,8 @@
     "rotation_views": {
       "type": "array",
       "title": "Rotation Views",
-      "description": "Which views the display rotation cycles through. Each selected view gets its own rotation slot and an empty/no-content slot is skipped. Leave empty ([]) to show nothing in the normal rotation — useful for an overhead-only board (pair with live_priority). When this field is omitted entirely, the single 'Display Mode' setting is used instead (legacy behavior). The overhead view is not listed here; it is driven by live_priority + proximity_alert.",
+      "description": "Which views the display rotation cycles through. Each selected view gets its own rotation slot and an empty/no-content slot is skipped. Leave all unchecked to show nothing in the normal rotation — useful for an overhead-only board (pair with Overhead Live Priority). When this field is omitted entirely, the single 'Display Mode' setting is used instead (legacy behavior). The overhead view is not listed here; it is driven by live_priority + proximity_alert.",
+      "x-widget": "checkbox-group",
       "items": {
         "type": "string",
         "enum": [
@@ -279,6 +280,14 @@
           "area",
           "flight_tracking"
         ]
+      },
+      "x-options": {
+        "labels": {
+          "map": "Map",
+          "stats": "Stats",
+          "area": "Area (multi-aircraft)",
+          "flight_tracking": "Flight Tracking"
+        }
       },
       "uniqueItems": true
     },
@@ -742,8 +751,10 @@
     "enrichment_provider",
     "route_cache_ttl",
     "display_mode",
+    "rotation_views",
     "display_duration",
     "update_interval",
+    "live_update_interval",
     "live_priority",
     "zoom_factor",
     "max_aircraft",
