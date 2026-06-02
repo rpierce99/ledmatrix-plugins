@@ -59,11 +59,17 @@ def make_plugin(config):
     p.proximity_enabled = pc.get("enabled", True)
     p.proximity_distance_miles = pc.get("distance_miles", 0.1)
     p.proximity_duration = pc.get("duration_seconds", 30)
+    p.proximity_cooldown = pc.get("cooldown_seconds", 30)
     p.live_priority_enabled = config.get("live_priority", False)
+    p.update_interval = config.get("update_interval", 5)
+    p.live_update_interval = config.get("live_update_interval", 2)
 
     p.display_mode = config.get("display_mode", "auto")
-    p.proximity_triggered_time = None
-    p._proximity_aircraft = None
+    # Overhead state machine
+    p._lock_icao = None
+    p._lock_start = 0.0
+    p._lock_aircraft = None
+    p._cooldown_until = 0.0
     p._active_overhead_aircraft = None
 
     p.aircraft_data = {}
@@ -80,8 +86,13 @@ def make_plugin(config):
     return p
 
 
-def _aircraft(distance_miles):
-    return {"icao": "abc123", "callsign": "TEST123", "distance_miles": distance_miles}
+def _aircraft(distance_miles, icao="abc123", callsign="TEST123"):
+    return {"icao": icao, "callsign": callsign, "distance_miles": distance_miles}
+
+
+def _set(p, *aircraft):
+    """Replace aircraft_data with the given aircraft (keyed by icao)."""
+    p.aircraft_data = {a["icao"]: a for a in aircraft}
 
 
 # ---------------------------------------------------------------------------
@@ -129,43 +140,120 @@ def test_rotation_views_plus_overhead():
 
 
 # ---------------------------------------------------------------------------
-# Proximity latch / live content
+# Overhead state machine: lock-on, hard cap, cooldown
 # ---------------------------------------------------------------------------
 
-def test_proximity_latch_holds_for_window():
-    p = make_plugin({"live_priority": True,
-                     "proximity_alert": {"distance_miles": 0.1, "duration_seconds": 20}})
-    # Aircraft enters the radius.
-    p.aircraft_data = {"abc123": _aircraft(0.05)}
+def _cfg(**proximity):
+    base = {"distance_miles": 0.5, "duration_seconds": 20, "cooldown_seconds": 30}
+    base.update(proximity)
+    return {"live_priority": True, "proximity_alert": base}
+
+
+def test_lock_on_acquires_and_reports_live():
+    p = make_plugin(_cfg())
+    _set(p, _aircraft(0.3, icao="AAA", callsign="AAL1"))
     assert p.has_live_priority() is True
     assert p.has_live_content() is True
     assert p.get_live_modes() == ["flight_tracker_live"]
-    assert p._proximity_aircraft is not None
+    assert p._lock_icao == "AAA"
+    assert p._lock_aircraft["callsign"] == "AAL1"
 
-    # Aircraft leaves the radius but we are still inside the alert window:
-    # the latch keeps the plugin "live".
-    p.aircraft_data = {"abc123": _aircraft(5.0)}
+
+def test_lock_on_does_not_switch_to_closer_plane():
+    # Once locked, a newly-closer plane must NOT steal the screen mid-window.
+    p = make_plugin(_cfg())
+    _set(p, _aircraft(0.3, icao="AAA", callsign="AAL1"))
     assert p.has_live_content() is True
+    assert p._lock_icao == "AAA"
+    # A closer plane appears; the lock stays on AAA.
+    _set(p, _aircraft(0.3, icao="AAA", callsign="AAL1"),
+            _aircraft(0.05, icao="BBB", callsign="BAW2"))
+    assert p.has_live_content() is True
+    assert p._lock_icao == "AAA"
+    assert p._lock_aircraft["callsign"] == "AAL1"
 
-    # Once the window elapses, live content clears.
-    p.proximity_triggered_time = time.time() - 999
+
+def test_hard_cap_releases_even_if_plane_lingers():
+    # The flight is held only for duration_seconds, even if it stays in the radius.
+    p = make_plugin(_cfg(duration_seconds=20))
+    _set(p, _aircraft(0.1, icao="AAA"))
+    assert p.has_live_content() is True
+    # Simulate the cap elapsing while the plane is still overhead.
+    p._lock_start = time.time() - 21
+    assert p.has_live_content() is False          # released
+    assert p._lock_icao is None
+    assert p._cooldown_until > time.time()        # cooldown started
+
+
+def test_window_holds_after_plane_leaves_radius():
+    # A plane that flew over still shows for the full window after leaving the radius.
+    p = make_plugin(_cfg(duration_seconds=20))
+    _set(p, _aircraft(0.1, icao="AAA"))
+    assert p.has_live_content() is True
+    # Plane leaves the radius but we are still inside the window.
+    _set(p, _aircraft(5.0, icao="AAA"))
+    assert p.has_live_content() is True
+    assert p._lock_icao == "AAA"
+
+
+def test_cooldown_blocks_repreempt():
+    p = make_plugin(_cfg(duration_seconds=20, cooldown_seconds=30))
+    _set(p, _aircraft(0.1, icao="AAA"))
+    assert p.has_live_content() is True
+    p._lock_start = time.time() - 21
+    assert p.has_live_content() is False          # released into cooldown
+    # Another plane is overhead, but cooldown suppresses the preempt.
+    _set(p, _aircraft(0.05, icao="BBB"))
     assert p.has_live_content() is False
     assert p.get_live_modes() == []
+    # After cooldown, the next plane can lock on.
+    p._cooldown_until = time.time() - 1
+    assert p.has_live_content() is True
+    assert p._lock_icao == "BBB"
+
+
+def test_cooldown_zero_allows_immediate_relock():
+    p = make_plugin(_cfg(duration_seconds=20, cooldown_seconds=0))
+    _set(p, _aircraft(0.1, icao="AAA"))
+    assert p.has_live_content() is True
+    p._lock_start = time.time() - 21
+    assert p.has_live_content() is False          # released, no cooldown
+    _set(p, _aircraft(0.1, icao="BBB"))
+    assert p.has_live_content() is True
+    assert p._lock_icao == "BBB"
 
 
 def test_live_priority_requires_optin():
     # Without live_priority, a close aircraft never preempts the rotation.
-    p = make_plugin({"proximity_alert": {"distance_miles": 0.1}})
-    p.aircraft_data = {"abc123": _aircraft(0.05)}
+    p = make_plugin({"proximity_alert": {"distance_miles": 0.5}})
+    _set(p, _aircraft(0.05))
     assert p.has_live_priority() is False
+    assert p.has_live_content() is False
     assert p.get_live_modes() == []
+    assert p._lock_icao is None
 
 
 def test_proximity_disabled_has_no_live_content():
     p = make_plugin({"live_priority": True, "proximity_alert": {"enabled": False}})
-    p.aircraft_data = {"abc123": _aircraft(0.01)}
+    _set(p, _aircraft(0.01))
     assert p.has_live_content() is False
     assert p.has_live_priority() is False
+
+
+# ---------------------------------------------------------------------------
+# Dynamic fetch interval
+# ---------------------------------------------------------------------------
+
+def test_fetch_interval_speeds_up_when_locked():
+    p = make_plugin(_cfg(distance_miles=0.5))
+    p.update_interval = 5
+    p.live_update_interval = 2
+    # Idle: the effective interval is the normal one.
+    assert (p.live_update_interval if p._lock_icao is not None else p.update_interval) == 5
+    _set(p, _aircraft(0.1, icao="AAA"))
+    p.has_live_content()  # acquire lock
+    assert p._lock_icao == "AAA"
+    assert (p.live_update_interval if p._lock_icao is not None else p.update_interval) == 2
 
 
 # ---------------------------------------------------------------------------

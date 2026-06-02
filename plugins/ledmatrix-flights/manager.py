@@ -185,11 +185,20 @@ class FlightTrackerPlugin(BasePlugin):
         self.proximity_config = self.config.get('proximity_alert', {})
         self.proximity_enabled = self.proximity_config.get('enabled', True)
         self.proximity_distance_miles = self.proximity_config.get('distance_miles', 0.1)
+        # Hard cap on how long a single overhead flight holds the screen, measured
+        # from when it was locked on (not refreshed while it dwells in the radius).
         self.proximity_duration = self.proximity_config.get('duration_seconds', 30)
+        # After a flight's window ends, suppress the preempt for this long so the
+        # normal rotation (weather/clock/sports) is guaranteed screen time.
+        self.proximity_cooldown = self.proximity_config.get('cooldown_seconds', 30)
         # Opt-in: when True, an aircraft entering the proximity radius preempts
         # the normal rotation to show the overhead view (the 'flight_tracker_live'
         # slot). Defaults False so existing installs are unaffected.
         self.live_priority_enabled = self.config.get('live_priority', False)
+        # Faster fetch cadence while a flight is locked on, so altitude/distance
+        # update smoothly during the overhead window. The ADS-B source is ~1Hz, so
+        # this is safe; idle fetches stay at update_interval.
+        self.live_update_interval = self.config.get('live_update_interval', 2)
         
         # Runtime data
         self.aircraft_data = {}  # ICAO -> aircraft dict (within map_radius_miles)
@@ -262,14 +271,16 @@ class FlightTrackerPlugin(BasePlugin):
         self.last_stat_change = 0
         self.stat_duration = 10  # Show each stat for 10 seconds
 
-        # Proximity alert variables (for overhead mode)
-        self.proximity_triggered_time = None
-        # Snapshot of the aircraft that last triggered the proximity latch, so the
-        # overhead view keeps showing the same plane for the full alert window even
-        # if it briefly drops out of range.
-        self._proximity_aircraft = None
+        # Proximity alert / overhead live-priority state machine (IDLE -> LOCKED ->
+        # COOLDOWN). When a plane enters the radius we lock onto that specific ICAO
+        # and show it for proximity_duration, then enter a cooldown before any other
+        # flight can preempt again.
+        self._lock_icao = None          # ICAO of the flight currently locked on
+        self._lock_start = 0.0          # time the lock was acquired
+        self._lock_aircraft = None      # last-known data for the locked flight
+        self._cooldown_until = 0.0      # preempt suppressed until this time
         # Set transiently while rendering the live overhead slot so _display_overhead
-        # shows the latched aircraft rather than the current closest.
+        # shows the locked aircraft rather than the current closest.
         self._active_overhead_aircraft = None
 
         # Fonts
@@ -2019,7 +2030,11 @@ class FlightTrackerPlugin(BasePlugin):
         current_time = time.time()
         is_visible = (current_time - self._last_displayed_time) < self._display_idle_threshold
 
-        if current_time - self.last_fetch >= self.update_interval:
+        # Fetch faster while a flight is locked on so the overhead view's
+        # altitude/distance stay current; fall back to update_interval when idle.
+        fetch_interval = self.live_update_interval if self._lock_icao is not None else self.update_interval
+
+        if current_time - self.last_fetch >= fetch_interval:
             self.last_fetch = current_time
 
             if self.data_source == 'flightradar24':
@@ -2383,12 +2398,11 @@ class FlightTrackerPlugin(BasePlugin):
         if granular_view is not None:
             mode = granular_view
             if mode == 'overhead':
-                # Live slot: only render while the proximity latch is active, so
-                # the overhead view shows for the full alert window then releases.
-                self._update_proximity_latch()
-                if not self._proximity_active():
+                # Live slot: only render while a flight is locked on. Show that
+                # specific flight (not whatever is currently closest) for its window.
+                if not self._evaluate_proximity():
                     return False
-                self._active_overhead_aircraft = self._proximity_aircraft
+                self._active_overhead_aircraft = self._lock_aircraft
             elif not self._view_has_content(mode):
                 # Enabled-but-empty rotation slot — skip so the rotation advances
                 # instead of dwelling on a blank screen.
@@ -2942,26 +2956,58 @@ class FlightTrackerPlugin(BasePlugin):
             modes.append('flight_tracker_live')
         return modes
 
-    def _update_proximity_latch(self) -> None:
-        """Latch the proximity alert when an aircraft enters the alert radius.
+    def _closest_in_radius(self):
+        """Return (icao, aircraft) for the closest aircraft within the alert radius,
+        or (None, None) if nothing is within ``proximity_distance_miles``."""
+        if not self.aircraft_data:
+            return None, None
+        icao, ac = min(self.aircraft_data.items(), key=lambda kv: kv[1]['distance_miles'])
+        if ac['distance_miles'] <= self.proximity_distance_miles:
+            return icao, ac
+        return None, None
 
-        Keeps the overhead view "live" for ``proximity_duration`` seconds after the
-        closest aircraft was last within ``proximity_distance_miles``, so a plane
-        passing overhead stays on screen for the full alert window even after it
-        moves out of the radius.
+    def _evaluate_proximity(self) -> bool:
+        """Advance the overhead state machine and report whether a flight is live.
+
+        IDLE -> LOCKED: when a plane enters the radius, lock onto that ICAO and show
+            it for ``proximity_duration`` (the hard cap), refreshing its data each
+            cycle so altitude/distance stay current — but never switching to a
+            different (closer) plane mid-window.
+        LOCKED -> COOLDOWN: once the cap elapses, release and suppress the preempt
+            for ``proximity_cooldown`` so the normal rotation gets screen time.
+        COOLDOWN -> IDLE: after the cooldown, the next plane in range can lock on.
+
+        This is the single source of truth for the live state; it has side effects
+        (acquiring/releasing the lock) and is safe to call repeatedly within a cycle.
         """
-        if not self.proximity_enabled:
-            return
-        closest = self.get_closest_aircraft()
-        if closest and closest['distance_miles'] <= self.proximity_distance_miles:
-            self.proximity_triggered_time = time.time()
-            self._proximity_aircraft = closest
-
-    def _proximity_active(self) -> bool:
-        """True while the proximity latch is within its alert window."""
-        if not self.proximity_enabled or self.proximity_triggered_time is None:
+        if not (self.proximity_enabled and self.live_priority_enabled):
             return False
-        return (time.time() - self.proximity_triggered_time) < self.proximity_duration
+        now = time.time()
+
+        if self._lock_icao is not None:
+            # Keep the locked flight's data fresh while it is still tracked.
+            ac = self.aircraft_data.get(self._lock_icao)
+            if ac is not None:
+                self._lock_aircraft = ac
+            # Hold for the full window even if the plane has left the radius, so a
+            # plane that flew over still shows for the configured duration.
+            if now - self._lock_start < self.proximity_duration:
+                return True
+            # Cap reached — release and start the cooldown.
+            self._lock_icao = None
+            self._cooldown_until = now + self.proximity_cooldown
+            return False
+
+        if now < self._cooldown_until:
+            return False
+
+        icao, ac = self._closest_in_radius()
+        if icao is not None:
+            self._lock_icao = icao
+            self._lock_start = now
+            self._lock_aircraft = ac
+            return True
+        return False
 
     def _view_has_content(self, view: str) -> bool:
         """Whether a scroll-through view has anything to render right now.
@@ -2981,11 +3027,8 @@ class FlightTrackerPlugin(BasePlugin):
         return bool(self.live_priority_enabled and self.proximity_enabled)
 
     def has_live_content(self) -> bool:
-        """Live content = an aircraft is (or was recently) within the proximity radius."""
-        if not self.proximity_enabled:
-            return False
-        self._update_proximity_latch()
-        return self._proximity_active()
+        """Live content = a flight is currently locked on (overhead) and not in cooldown."""
+        return self._evaluate_proximity()
 
     def get_live_modes(self) -> list:
         """Return the live slot name when there is overhead content to preempt with."""
