@@ -48,6 +48,14 @@
       "maximum": 300,
       "default": 5
     },
+    "live_update_interval": {
+      "type": "integer",
+      "title": "Live Fetch Interval",
+      "description": "Faster fetch interval (seconds) used while a flight is locked on for the overhead view, so altitude/distance update smoothly. The ADS-B source is ~1Hz, so a low value is safe. Idle fetches use update_interval.",
+      "minimum": 1,
+      "maximum": 60,
+      "default": 2
+    },
     "live_priority": {
       "type": "boolean",
       "default": false,
@@ -211,9 +219,16 @@
         },
         "duration_seconds": {
           "type": "integer",
-          "description": "Duration to show proximity alert in seconds",
+          "description": "Hard cap (seconds) on how long a single overhead flight holds the screen, measured from when it is locked on. The flight shows for this long even if it leaves the radius sooner, and is released after this even if it lingers.",
           "minimum": 5,
           "maximum": 300,
+          "default": 30
+        },
+        "cooldown_seconds": {
+          "type": "integer",
+          "description": "After a flight's window ends, suppress the overhead preempt for this many seconds so the normal rotation (weather/clock/sports) gets guaranteed screen time, even if planes remain overhead. Set to 0 to disable the cooldown.",
+          "minimum": 0,
+          "maximum": 600,
           "default": 30
         }
       },
