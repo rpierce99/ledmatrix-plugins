@@ -212,6 +212,58 @@ Same as Champions League — use the club's domestic abbreviation from the table
 
 ---
 
+## FIFA World Cup 2026 (fifa.world)
+
+> **⚠️ Verify abbreviations via debug logs.** ESPN's internal abbreviations for national teams are not always the same as FIFA country codes. Enable debug logging and check the `home_abbr`/`away_abbr` values logged for each game to confirm the exact codes the ESPN feed uses before setting `favorite_teams`.
+
+The table below lists high-confidence ESPN abbreviations based on prior international tournament data. Entries marked with `*` should be treated as approximate until confirmed from the live feed.
+
+| Country | Abbreviation |
+|---------|-------------|
+| Argentina | ARG |
+| Australia | AUS |
+| Belgium | BEL |
+| Brazil | BRA |
+| Cameroon | CMR |
+| Canada | CAN |
+| Chile | CHI |
+| Colombia | COL |
+| Costa Rica | CRC |
+| Croatia | CRO |
+| Czech Republic | CZE |
+| Ecuador | ECU |
+| Egypt | EGY |
+| England | ENG |
+| France | FRA |
+| Germany | GER |
+| Ghana | GHA |
+| Hungary | HUN |
+| Iran | IRN |
+| Japan | JPN |
+| Mali | MLI * |
+| Mexico | MEX |
+| Morocco | MAR |
+| Netherlands | NED |
+| New Zealand | NZL |
+| Nigeria | NGA |
+| Panama | PAN |
+| Paraguay | PAR |
+| Portugal | POR |
+| Saudi Arabia | KSA |
+| Senegal | SEN |
+| Serbia | SRB |
+| Slovakia | SVK |
+| South Korea | KOR |
+| Spain | ESP |
+| Switzerland | SUI |
+| Tunisia | TUN |
+| United States | USA |
+| Uruguay | URU |
+
+To find your team's abbreviation: enable the plugin, set `debug` log level, then look for lines like `Extracted: USA@MEX` in the logs — those are the exact codes ESPN returns.
+
+---
+
 ## Tips
 
 - **Abbreviations are case-sensitive** — use uppercase as shown (e.g. `"LIV"` not `"liv"`)
