@@ -51,7 +51,8 @@
     "live_priority": {
       "type": "boolean",
       "default": false,
-      "description": "Enable live priority takeover when plugin has live content"
+      "title": "Overhead Live Priority",
+      "description": "When enabled, an aircraft entering the proximity radius immediately preempts the normal rotation to show the overhead view for the proximity alert window (see proximity_alert.duration_seconds). Adds a 'flight_tracker_live' rotation slot that stays blank/skipped until a plane is overhead. Leave off for legacy behavior."
     },
     "skyaware_url": {
       "type": "string",
@@ -240,7 +241,7 @@
     "display_mode": {
       "type": "string",
       "title": "Display Mode",
-      "description": "Display mode. 'area' shows multi-aircraft list with FlightWall metrics. 'flight_tracking' shows tracked flight details. 'auto' chooses based on context.",
+      "description": "Single-view display mode, used only when 'rotation_views' is not set. 'area' shows multi-aircraft list with FlightWall metrics. 'flight_tracking' shows tracked flight details. 'auto' chooses based on context.",
       "enum": [
         "map",
         "overhead",
@@ -250,6 +251,21 @@
         "auto"
       ],
       "default": "auto"
+    },
+    "rotation_views": {
+      "type": "array",
+      "title": "Rotation Views",
+      "description": "Which views the display rotation cycles through. Each selected view gets its own rotation slot and an empty/no-content slot is skipped. Leave empty ([]) to show nothing in the normal rotation — useful for an overhead-only board (pair with live_priority). When this field is omitted entirely, the single 'Display Mode' setting is used instead (legacy behavior). The overhead view is not listed here; it is driven by live_priority + proximity_alert.",
+      "items": {
+        "type": "string",
+        "enum": [
+          "map",
+          "stats",
+          "area",
+          "flight_tracking"
+        ]
+      },
+      "uniqueItems": true
     },
     "units": {
       "type": "string",

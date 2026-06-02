@@ -41,7 +41,23 @@ logger = logging.getLogger(__name__)
 
 class FlightTrackerPlugin(BasePlugin):
     """Flight tracker plugin for LEDMatrix."""
-    
+
+    # Scroll-through views that can be enabled individually via `rotation_views`.
+    # 'overhead' is intentionally excluded — it is the live preempt view, driven
+    # by proximity alerts rather than the normal rotation.
+    _VALID_ROTATION_VIEWS = ('map', 'stats', 'area', 'flight_tracking')
+
+    # Maps the framework's per-slot mode name to the internal view rendered by
+    # display(). The bare 'flight_tracker' slot is legacy and resolves via the
+    # configured `display_mode` instead.
+    _GRANULAR_MODES = {
+        'flight_tracker_map': 'map',
+        'flight_tracker_stats': 'stats',
+        'flight_tracker_area': 'area',
+        'flight_tracker_flight_tracking': 'flight_tracking',
+        'flight_tracker_live': 'overhead',
+    }
+
     def __init__(self, plugin_id: str, config: Dict[str, Any], display_manager, cache_manager, plugin_manager):
         super().__init__(plugin_id, config, display_manager, cache_manager, plugin_manager)
         self.plugin_manager = plugin_manager
@@ -170,6 +186,10 @@ class FlightTrackerPlugin(BasePlugin):
         self.proximity_enabled = self.proximity_config.get('enabled', True)
         self.proximity_distance_miles = self.proximity_config.get('distance_miles', 0.1)
         self.proximity_duration = self.proximity_config.get('duration_seconds', 30)
+        # Opt-in: when True, an aircraft entering the proximity radius preempts
+        # the normal rotation to show the overhead view (the 'flight_tracker_live'
+        # slot). Defaults False so existing installs are unaffected.
+        self.live_priority_enabled = self.config.get('live_priority', False)
         
         # Runtime data
         self.aircraft_data = {}  # ICAO -> aircraft dict (within map_radius_miles)
@@ -244,6 +264,13 @@ class FlightTrackerPlugin(BasePlugin):
 
         # Proximity alert variables (for overhead mode)
         self.proximity_triggered_time = None
+        # Snapshot of the aircraft that last triggered the proximity latch, so the
+        # overhead view keeps showing the same plane for the full alert window even
+        # if it briefly drops out of range.
+        self._proximity_aircraft = None
+        # Set transiently while rendering the live overhead slot so _display_overhead
+        # shows the latched aircraft rather than the current closest.
+        self._active_overhead_aircraft = None
 
         # Fonts
         self.fonts = self._load_fonts()
@@ -284,7 +311,12 @@ class FlightTrackerPlugin(BasePlugin):
             self.logger.info(f"[Flight Tracker] Display: {self.display_width}x{self.display_height}, Data source: FlightRadar24")
         else:
             self.logger.info(f"[Flight Tracker] Display: {self.display_width}x{self.display_height}, Data source: SkyAware ({self.skyaware_url}), FR24 enrichment: {self.fr24_enrichment}")
-    
+
+        # Rotation slots exposed to the framework. The core prefers this over the
+        # manifest's display_modes, giving us per-view rotation + the live slot.
+        self.modes = self._get_available_modes()
+        self.logger.info(f"[Flight Tracker] Rotation modes: {self.modes}")
+
     @property
     def display_width(self) -> int:
         return self._display_manager_ref.matrix.width
@@ -2314,14 +2346,19 @@ class FlightTrackerPlugin(BasePlugin):
             self.logger.warning(f"[Flight Tracker] get_vegas_content() failed: {e}")
             return None
 
-    def display(self, force_clear: bool = False, *, display_mode: Optional[str] = None) -> None:
-        """Display flight tracker content based on display_mode configuration.
+    def display(self, force_clear: bool = False, *, display_mode: Optional[str] = None) -> bool:
+        """Display flight tracker content based on the active slot.
 
         Supports modes: map, overhead, stats, area, flight_tracking, auto.
 
-        The ``display_mode`` parameter is passed by the LEDMatrix framework to
-        indicate which manifest display mode is active.  It maps framework mode
-        names (from manifest ``display_modes``) to our internal mode names.
+        The ``display_mode`` parameter is the framework's active slot name. It is
+        resolved to an internal view via ``_GRANULAR_MODES`` (per-view rotation +
+        the live overhead slot); the bare legacy ``flight_tracker`` slot falls back
+        to the configured ``display_mode``.
+
+        Returns ``True`` when content was rendered and ``False`` when there is
+        nothing to show for the active slot, so the framework skips to the next
+        mode instead of dwelling on a blank screen.
         """
         now = time.time()
         was_hidden = (now - self._last_displayed_time) > self._display_idle_threshold
@@ -2332,49 +2369,70 @@ class FlightTrackerPlugin(BasePlugin):
         aircraft_count = len(self.aircraft_data)
         closest = self.get_closest_aircraft()
 
-        # The framework passes display_mode='flight_tracker' (the single
-        # manifest mode name).  We always use our internal config setting
-        # to decide which view to render (map, overhead, stats, area,
-        # flight_tracking, or auto).
-        mode = self.display_mode
+        # Resolve which internal view to render from the framework's slot name.
+        # Granular slots (flight_tracker_map/_stats/_area/_flight_tracking/_live)
+        # map directly to a view; the bare legacy 'flight_tracker' slot falls back
+        # to the configured display_mode (auto/map/stats/...).
+        granular_view = self._GRANULAR_MODES.get(display_mode)
 
         self.logger.debug(
-            "[Flight Tracker] display() called: configured_mode=%s, framework_mode=%s, resolved=%s, aircraft=%s",
-            self.display_mode, display_mode, mode, aircraft_count,
+            "[Flight Tracker] display() called: configured_mode=%s, framework_mode=%s, granular=%s, aircraft=%s",
+            self.display_mode, display_mode, granular_view, aircraft_count,
         )
-        if mode == 'auto':
-            # Priority interrupts — always show these immediately
-            has_airborne_tracked = any(
-                tf.status == "AIRBORNE" for tf in self.tracked_flight_data.values()
-            )
-            if has_airborne_tracked:
-                mode = 'flight_tracking'
-            elif self.proximity_enabled and closest and closest['distance_miles'] <= self.proximity_distance_miles:
-                mode = 'overhead'
-            else:
-                # Rotate through available modes
-                auto_modes = []
-                if self.aircraft_data:
-                    auto_modes.append('map')
-                    auto_modes.append('area')
-                if self.all_aircraft_data or self.aircraft_data:
-                    auto_modes.append('stats')
-                if not auto_modes:
-                    auto_modes = ['stats']
 
-                now = time.time()
-                if now - self._auto_mode_last_change >= self._auto_rotate_interval:
-                    self._auto_mode_index = (self._auto_mode_index + 1) % len(auto_modes)
-                    self._auto_mode_last_change = now
-
-                mode = auto_modes[self._auto_mode_index % len(auto_modes)]
-
-            self.logger.debug(
-                "[Flight Tracker] Auto mode selection: chosen_mode=%s (aircraft=%s)",
-                mode, aircraft_count,
-            )
+        if granular_view is not None:
+            mode = granular_view
+            if mode == 'overhead':
+                # Live slot: only render while the proximity latch is active, so
+                # the overhead view shows for the full alert window then releases.
+                self._update_proximity_latch()
+                if not self._proximity_active():
+                    return False
+                self._active_overhead_aircraft = self._proximity_aircraft
+            elif not self._view_has_content(mode):
+                # Enabled-but-empty rotation slot — skip so the rotation advances
+                # instead of dwelling on a blank screen.
+                return False
+        elif display_mode and display_mode != 'flight_tracker':
+            # Unknown slot (e.g. the plugin-id fallback when no rotation views are
+            # selected) — nothing to show.
+            return False
         else:
-            self.logger.debug("[Flight Tracker] Manual mode selection: chosen_mode=%s", mode)
+            # Legacy single-slot behavior: choose the view from display_mode.
+            mode = self.display_mode
+            if mode == 'auto':
+                # Priority interrupts — always show these immediately
+                has_airborne_tracked = any(
+                    tf.status == "AIRBORNE" for tf in self.tracked_flight_data.values()
+                )
+                if has_airborne_tracked:
+                    mode = 'flight_tracking'
+                elif self.proximity_enabled and closest and closest['distance_miles'] <= self.proximity_distance_miles:
+                    mode = 'overhead'
+                else:
+                    # Rotate through available modes
+                    auto_modes = []
+                    if self.aircraft_data:
+                        auto_modes.append('map')
+                        auto_modes.append('area')
+                    if self.all_aircraft_data or self.aircraft_data:
+                        auto_modes.append('stats')
+                    if not auto_modes:
+                        auto_modes = ['stats']
+
+                    now = time.time()
+                    if now - self._auto_mode_last_change >= self._auto_rotate_interval:
+                        self._auto_mode_index = (self._auto_mode_index + 1) % len(auto_modes)
+                        self._auto_mode_last_change = now
+
+                    mode = auto_modes[self._auto_mode_index % len(auto_modes)]
+
+                self.logger.debug(
+                    "[Flight Tracker] Auto mode selection: chosen_mode=%s (aircraft=%s)",
+                    mode, aircraft_count,
+                )
+            else:
+                self.logger.debug("[Flight Tracker] Manual mode selection: chosen_mode=%s", mode)
 
         self.logger.info("[Flight Tracker] display(): mode=%s, aircraft=%d", mode, aircraft_count)
 
@@ -2399,7 +2457,13 @@ class FlightTrackerPlugin(BasePlugin):
                 self._renderer.render_error(f"ERR:{mode}")
             except Exception:
                 self.logger.exception("[Flight Tracker] Failed to render error fallback")
-    
+        finally:
+            # Clear the transient overhead override regardless of how rendering went.
+            self._active_overhead_aircraft = None
+
+        return True
+
+
     # -------------------------------------------------------------------------
     # New display modes (delegated to renderer.py)
     # -------------------------------------------------------------------------
@@ -2588,8 +2652,10 @@ class FlightTrackerPlugin(BasePlugin):
         """Display detailed overhead view of closest aircraft."""
         if force_clear:
             self.display_manager.clear()
-        
-        closest = self.get_closest_aircraft()
+
+        # During a live proximity alert, keep showing the latched aircraft (the one
+        # that triggered the alert) even if it has just dropped out of range.
+        closest = self._active_overhead_aircraft or self.get_closest_aircraft()
         if not closest:
             # No aircraft to display
             img = Image.new('RGB', (self.display_width, self.display_height), (0, 0, 0))
@@ -2852,17 +2918,82 @@ class FlightTrackerPlugin(BasePlugin):
             record_time=rec_ts if record_data else "",
         )
 
+    def _get_available_modes(self) -> list:
+        """Build the rotation slot list the framework cycles through.
+
+        Backward compatible: when ``rotation_views`` is not configured the plugin
+        exposes the single legacy ``flight_tracker`` slot and renders according to
+        the ``display_mode`` setting (auto/map/stats/...) exactly as before.
+
+        When ``rotation_views`` is configured, each selected view becomes its own
+        rotation slot (``flight_tracker_<view>``). An empty list means the plugin
+        contributes no scroll-through slots. The overhead live slot
+        (``flight_tracker_live``) is appended when proximity preemption is enabled.
+        """
+        rotation_views = self.config.get('rotation_views', None)
+        modes = []
+        if rotation_views is None:
+            modes.append('flight_tracker')
+        else:
+            for view in rotation_views:
+                if view in self._VALID_ROTATION_VIEWS:
+                    modes.append(f'flight_tracker_{view}')
+        if self.proximity_enabled and self.live_priority_enabled:
+            modes.append('flight_tracker_live')
+        return modes
+
+    def _update_proximity_latch(self) -> None:
+        """Latch the proximity alert when an aircraft enters the alert radius.
+
+        Keeps the overhead view "live" for ``proximity_duration`` seconds after the
+        closest aircraft was last within ``proximity_distance_miles``, so a plane
+        passing overhead stays on screen for the full alert window even after it
+        moves out of the radius.
+        """
+        if not self.proximity_enabled:
+            return
+        closest = self.get_closest_aircraft()
+        if closest and closest['distance_miles'] <= self.proximity_distance_miles:
+            self.proximity_triggered_time = time.time()
+            self._proximity_aircraft = closest
+
+    def _proximity_active(self) -> bool:
+        """True while the proximity latch is within its alert window."""
+        if not self.proximity_enabled or self.proximity_triggered_time is None:
+            return False
+        return (time.time() - self.proximity_triggered_time) < self.proximity_duration
+
+    def _view_has_content(self, view: str) -> bool:
+        """Whether a scroll-through view has anything to render right now.
+
+        Used to skip an enabled-but-empty rotation slot so the rotation moves on
+        instead of dwelling on a blank/"No Aircraft" screen.
+        """
+        if view == 'stats':
+            return True
+        if view == 'flight_tracking':
+            return bool(self.tracked_flight_data)
+        # map, area
+        return bool(self.aircraft_data)
+
+    def has_live_priority(self) -> bool:
+        """Whether this plugin should preempt the rotation for overhead aircraft."""
+        return bool(self.live_priority_enabled and self.proximity_enabled)
+
     def has_live_content(self) -> bool:
-        """Check if plugin has live/urgent content (proximity alerts)."""
+        """Live content = an aircraft is (or was recently) within the proximity radius."""
         if not self.proximity_enabled:
             return False
-        
-        closest = self.get_closest_aircraft()
-        if not closest:
-            return False
-        
-        return closest['distance_miles'] <= self.proximity_distance_miles
-    
+        self._update_proximity_latch()
+        return self._proximity_active()
+
+    def get_live_modes(self) -> list:
+        """Return the live slot name when there is overhead content to preempt with."""
+        if self.has_live_priority() and self.has_live_content():
+            return ['flight_tracker_live']
+        return []
+
+
     def validate_config(self) -> bool:
         """Validate plugin configuration."""
         if not super().validate_config():
