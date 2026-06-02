@@ -13,6 +13,7 @@ set, so the seeded game survives. This test verifies that control flow without
 needing a display/cache manager.
 """
 
+import contextlib
 import os
 import sys
 import logging
@@ -79,10 +80,12 @@ def test_test_mode_short_circuits_fetch():
     live._fetch_data = fake_fetch
     live._test_mode_update = fake_test_update
 
-    try:
+    # Guard update(): without the fix it enters the live-fetch path and trips over
+    # attributes a bare instance doesn't have. Suppress only that expected
+    # AttributeError so an unrelated failure still surfaces; the invariants below
+    # assert the real behavior regardless of how far the buggy path gets.
+    with contextlib.suppress(AttributeError):
         live.update()
-    except _StopAfterTestUpdate:
-        pass
 
     assert called["test_update"], "expected _test_mode_update() to run in test mode"
     assert not called["fetch"], "_fetch_data() must NOT run in test mode (it wipes the seeded game)"

@@ -48,10 +48,19 @@
       "maximum": 300,
       "default": 5
     },
+    "live_update_interval": {
+      "type": "integer",
+      "title": "Live Fetch Interval",
+      "description": "Faster fetch interval (seconds) used while a flight is locked on for the overhead view, so altitude/distance update smoothly. The ADS-B source is ~1Hz, so a low value is safe. Idle fetches use update_interval.",
+      "minimum": 1,
+      "maximum": 60,
+      "default": 2
+    },
     "live_priority": {
       "type": "boolean",
       "default": false,
-      "description": "Enable live priority takeover when plugin has live content"
+      "title": "Overhead Live Priority",
+      "description": "When enabled, an aircraft entering the proximity radius immediately preempts the normal rotation to show the overhead view for the proximity alert window (see proximity_alert.duration_seconds). Adds a 'flight_tracker_live' rotation slot that stays blank/skipped until a plane is overhead. Leave off for legacy behavior."
     },
     "skyaware_url": {
       "type": "string",
@@ -210,9 +219,16 @@
         },
         "duration_seconds": {
           "type": "integer",
-          "description": "Duration to show proximity alert in seconds",
+          "description": "Hard cap (seconds) on how long a single overhead flight holds the screen, measured from when it is locked on. The flight shows for this long even if it leaves the radius sooner, and is released after this even if it lingers.",
           "minimum": 5,
           "maximum": 300,
+          "default": 30
+        },
+        "cooldown_seconds": {
+          "type": "integer",
+          "description": "After a flight's window ends, suppress the overhead preempt for this many seconds so the normal rotation (weather/clock/sports) gets guaranteed screen time, even if planes remain overhead. Set to 0 to disable the cooldown.",
+          "minimum": 0,
+          "maximum": 600,
           "default": 30
         }
       },
@@ -240,7 +256,7 @@
     "display_mode": {
       "type": "string",
       "title": "Display Mode",
-      "description": "Display mode. 'area' shows multi-aircraft list with FlightWall metrics. 'flight_tracking' shows tracked flight details. 'auto' chooses based on context.",
+      "description": "Single-view display mode, used only when 'rotation_views' is not set. 'area' shows multi-aircraft list with FlightWall metrics. 'flight_tracking' shows tracked flight details. 'auto' chooses based on context.",
       "enum": [
         "map",
         "overhead",
@@ -250,6 +266,30 @@
         "auto"
       ],
       "default": "auto"
+    },
+    "rotation_views": {
+      "type": "array",
+      "title": "Rotation Views",
+      "description": "Which views the display rotation cycles through. Each selected view gets its own rotation slot and an empty/no-content slot is skipped. Leave all unchecked to show nothing in the normal rotation — useful for an overhead-only board (pair with Overhead Live Priority). When this field is omitted entirely, the single 'Display Mode' setting is used instead (legacy behavior). The overhead view is not listed here; it is driven by live_priority + proximity_alert.",
+      "x-widget": "checkbox-group",
+      "items": {
+        "type": "string",
+        "enum": [
+          "map",
+          "stats",
+          "area",
+          "flight_tracking"
+        ]
+      },
+      "x-options": {
+        "labels": {
+          "map": "Map",
+          "stats": "Stats",
+          "area": "Area (multi-aircraft)",
+          "flight_tracking": "Flight Tracking"
+        }
+      },
+      "uniqueItems": true
     },
     "units": {
       "type": "string",
@@ -711,8 +751,10 @@
     "enrichment_provider",
     "route_cache_ttl",
     "display_mode",
+    "rotation_views",
     "display_duration",
     "update_interval",
+    "live_update_interval",
     "live_priority",
     "zoom_factor",
     "max_aircraft",
