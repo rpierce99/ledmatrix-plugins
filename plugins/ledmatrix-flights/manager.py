@@ -2673,156 +2673,32 @@ class FlightTrackerPlugin(BasePlugin):
         self.display_manager.update_display()
     
     def _display_overhead(self, force_clear: bool = False) -> None:
-        """Display detailed overhead view of closest aircraft."""
+        """Display the overhead 'card' for the closest aircraft.
+
+        Rendering lives in ``FlightRenderer.render_overhead`` (the modern view
+        home, shared style with the area/stats cards). This wrapper keeps the
+        live-preempt latch logic and feeds the renderer the manager-derived
+        progress/delay fields. Used by both the ``flight_tracker_live`` preempt
+        slot and the legacy ``display_mode: "overhead"``.
+        """
         if force_clear:
             self.display_manager.clear()
 
-        # During a live proximity alert, keep showing the latched aircraft (the one
-        # that triggered the alert) even if it has just dropped out of range.
+        # During a live proximity alert, keep showing the latched aircraft (the
+        # one that triggered the alert) even if it just dropped out of range.
         closest = self._active_overhead_aircraft or self.get_closest_aircraft()
         if not closest:
-            # No aircraft to display
-            img = Image.new('RGB', (self.display_width, self.display_height), (0, 0, 0))
-            draw = ImageDraw.Draw(img)
-            self._draw_text_with_outline(draw, "No Aircraft", 
-                                       (self.display_width // 2 - 30, self.display_height // 2 - 4), 
-                                       self.fonts['medium'], fill=(200, 200, 200), outline_color=(0, 0, 0))
-            self.display_manager.image = img.copy()
-            self.display_manager.update_display()
+            self._renderer.render_error("No Aircraft")
             return
-        
-        # Create image
-        img = Image.new('RGB', (self.display_width, self.display_height), (0, 0, 0))
-        draw = ImageDraw.Draw(img)
-        
-        # Determine layout based on display size
-        dsize = self._display_size()
-        is_small_display = dsize in ('tiny', 'small')
 
-        # Gather enriched fields for overhead display
-        oh_origin = closest.get('origin') or ''
-        oh_dest = closest.get('destination') or ''
-        oh_airline = closest.get('airline_name') or ''
-        oh_progress = self._compute_flight_progress(closest)
         oh_delay = self._format_delay(closest)
+        self._renderer.render_overhead(
+            closest,
+            progress=self._compute_flight_progress(closest),
+            delay=oh_delay or "",
+            delay_color=self._delay_color(oh_delay) if oh_delay else None,
+        )
 
-        if dsize == 'tiny':
-            # Tiny display (≤64×32): callsign on top, altitude+distance on bottom
-            self._draw_text_smart(draw, closest['callsign'], (1, 1),
-                                self.fonts['data_small'], fill=(255, 255, 255), use_outline=False)
-            line2 = f"{int(closest['altitude'])}ft {closest['distance_miles']:.1f}mi"
-            y2 = self._calculate_line_spacing(self.fonts['data_small']) + 1
-            if y2 < self.display_height:
-                self._draw_text_smart(draw, line2, (1, y2),
-                                    self.fonts['data_small'], fill=closest['color'], use_outline=False)
-            # Route on third line if space
-            if oh_origin and oh_dest:
-                y3 = y2 + self._calculate_line_spacing(self.fonts['data_small'])
-                if y3 < self.display_height:
-                    self._draw_text_smart(draw, f"{oh_origin}-{oh_dest}", (1, y3),
-                                        self.fonts['data_small'], fill=(150, 255, 150), use_outline=False)
-
-        elif is_small_display:
-            # Small display layout (128×32) with dynamic spacing
-            y_offset = 2
-
-            # Line 1: Callsign + optional airline ICAO
-            callsign_text = closest['callsign']
-            if closest.get('airline_icao') and self.display_width > 64:
-                callsign_text = f"{closest['callsign']} {closest['airline_icao']}"
-            self._draw_text_smart(draw, callsign_text, (2, y_offset),
-                                self.fonts['data_medium'], fill=(255, 255, 255), use_outline=False)
-            y_offset += self._calculate_line_spacing(self.fonts['data_medium'])
-
-            # Line 2: Altitude and Speed
-            self._draw_text_smart(draw, f"ALT:{int(closest['altitude'])}ft", (2, y_offset),
-                                self.fonts['data_small'], fill=closest['color'], use_outline=False)
-            self._draw_text_smart(draw, f"SPD:{int(closest['speed'])}kt", (self.display_width // 2, y_offset),
-                                self.fonts['data_small'], fill=(200, 200, 200), use_outline=False)
-            y_offset += self._calculate_line_spacing(self.fonts['data_small'])
-
-            # Line 3: Distance and Heading
-            self._draw_text_smart(draw, f"DIST:{closest['distance_miles']:.2f}mi", (2, y_offset),
-                                self.fonts['data_small'], fill=(200, 200, 200), use_outline=False)
-            if closest['heading']:
-                self._draw_text_smart(draw, f"HDG:{int(closest['heading'])}°", (self.display_width // 2, y_offset),
-                                    self.fonts['data_small'], fill=(200, 200, 200), use_outline=False)
-            y_offset += self._calculate_line_spacing(self.fonts['data_small'])
-
-            # Line 4: Route or type (only if space)
-            if y_offset + self._calculate_line_spacing(self.fonts['data_small']) <= self.display_height:
-                if oh_origin and oh_dest:
-                    route_text = f"{oh_origin}->{oh_dest}"
-                    if oh_progress is not None:
-                        route_text += f" {int(oh_progress * 100)}%"
-                    self._draw_text_smart(draw, route_text, (2, y_offset),
-                                        self.fonts['data_small'], fill=(150, 255, 150), use_outline=False)
-                else:
-                    self._draw_text_smart(draw, f"TYPE:{closest['aircraft_type']}", (2, y_offset),
-                                        self.fonts['data_small'], fill=(150, 150, 150), use_outline=False)
-        else:
-            # Large display layout (192x96 or bigger) with dynamic spacing
-            y_offset = 4
-
-            # Title
-            self._draw_text_with_outline(draw, "OVERHEAD AIRCRAFT", (self.display_width // 2 - 40, y_offset),
-                                       self.fonts['title_large'], fill=(255, 200, 0), outline_color=(0, 0, 0))
-            y_offset += self._calculate_line_spacing(self.fonts['title_large']) + 4
-
-            # Callsign + airline name (large displays only)
-            callsign_line = f"Callsign: {closest['callsign']}"
-            if oh_airline:
-                callsign_line += f"  ({oh_airline})"
-            self._draw_text_smart(draw, callsign_line, (4, y_offset),
-                                self.fonts['data_large'], fill=(255, 255, 255), use_outline=False)
-            y_offset += self._calculate_line_spacing(self.fonts['data_large'])
-
-            # Altitude
-            self._draw_text_smart(draw, f"Altitude: {int(closest['altitude'])} ft", (4, y_offset),
-                                self.fonts['data_medium'], fill=closest['color'], use_outline=False)
-            y_offset += self._calculate_line_spacing(self.fonts['data_medium'])
-
-            # Speed
-            self._draw_text_smart(draw, f"Speed: {int(closest['speed'])} knots", (4, y_offset),
-                                self.fonts['data_medium'], fill=(200, 200, 200), use_outline=False)
-            y_offset += self._calculate_line_spacing(self.fonts['data_medium'])
-
-            # Distance
-            self._draw_text_smart(draw, f"Distance: {closest['distance_miles']:.2f} miles", (4, y_offset),
-                                self.fonts['data_medium'], fill=(255, 150, 0), use_outline=False)
-            y_offset += self._calculate_line_spacing(self.fonts['data_medium'])
-
-            # Heading
-            if closest['heading'] and y_offset + self._calculate_line_spacing(self.fonts['data_medium']) <= self.display_height:
-                self._draw_text_smart(draw, f"Heading: {int(closest['heading'])}°", (4, y_offset),
-                                    self.fonts['data_medium'], fill=(200, 200, 200), use_outline=False)
-                y_offset += self._calculate_line_spacing(self.fonts['data_medium'])
-
-            # Route + progress
-            if oh_origin and oh_dest and y_offset + self._calculate_line_spacing(self.fonts['data_medium']) <= self.display_height:
-                route_text = f"Route: {oh_origin} -> {oh_dest}"
-                if oh_progress is not None:
-                    route_text += f"  ({int(oh_progress * 100)}%)"
-                self._draw_text_smart(draw, route_text, (4, y_offset),
-                                    self.fonts['data_medium'], fill=(150, 255, 150), use_outline=False)
-                y_offset += self._calculate_line_spacing(self.fonts['data_medium'])
-
-            # Delay status
-            if oh_delay and y_offset + self._calculate_line_spacing(self.fonts['data_medium']) <= self.display_height:
-                delay_color = self._delay_color(oh_delay)
-                self._draw_text_smart(draw, f"Status: {oh_delay}", (4, y_offset),
-                                    self.fonts['data_medium'], fill=delay_color, use_outline=False)
-                y_offset += self._calculate_line_spacing(self.fonts['data_medium'])
-
-            # Aircraft type (only if there's space)
-            if y_offset + self._calculate_line_spacing(self.fonts['data_medium']) <= self.display_height:
-                self._draw_text_smart(draw, f"Type: {closest['aircraft_type']}", (4, y_offset),
-                                    self.fonts['data_medium'], fill=(150, 150, 150), use_outline=False)
-        
-        # Display the image
-        self.display_manager.image = img.copy()
-        self.display_manager.update_display()
-    
     def _display_stats(self, force_clear: bool = False) -> None:
         """Display flight statistics using the renderer's stat card layout.
 

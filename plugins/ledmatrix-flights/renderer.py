@@ -9,6 +9,7 @@ Plus the area-mode card renderer for cycling through nearby aircraft.
 """
 
 import logging
+import math
 import os
 import time
 from typing import Any, Dict, Optional
@@ -60,9 +61,13 @@ _LOGO_DIR_CANDIDATES = [
 _logo_cache: Dict[str, Optional[Image.Image]] = {}
 
 
-def _load_airline_logo(icao: str, max_h: int) -> Optional[Image.Image]:
-    """Load and scale an airline logo PNG. Returns RGBA image or None."""
-    key = f"{icao}_{max_h}"
+def _load_airline_logo(icao: str, max_h: int, max_w: Optional[int] = None) -> Optional[Image.Image]:
+    """Load and scale an airline logo PNG to fit within (max_w, max_h), preserving
+    aspect. ``max_w`` defaults to 2*max_h; pass a tighter cap so wide wordmark logos
+    (e.g. SkyWest) don't crowd out the text. Returns RGBA image or None."""
+    if max_w is None:
+        max_w = max_h * 2
+    key = f"{icao}_{max_h}_{max_w}"
     if key in _logo_cache:
         return _logo_cache[key]
 
@@ -74,8 +79,7 @@ def _load_airline_logo(icao: str, max_h: int) -> Optional[Image.Image]:
                 bbox = logo.getbbox()
                 if bbox:
                     logo = logo.crop(bbox)
-                # Allow wider logos — cap height to max_h, scale width proportionally
-                logo.thumbnail((max_h * 2, max_h), Image.Resampling.LANCZOS)
+                logo.thumbnail((max_w, max_h), Image.Resampling.LANCZOS)
                 _logo_cache[key] = logo
                 logger.info(f"[Flight Tracker] Loaded airline logo: {icao} ({logo.size[0]}x{logo.size[1]})")
                 return logo
@@ -638,6 +642,244 @@ class FlightRenderer:
 
     def render_area_card_image(self, aircraft, index=0, total_count=1):
         return self._render_area_card_to_image(aircraft, index, total_count)
+
+    # =====================================================================
+    # Overhead Card (single closest / latched aircraft — the live preempt view)
+    # =====================================================================
+
+    @staticmethod
+    def _heading_arrow_points(cx, cy, size, heading):
+        """Polygon points for an arrowhead centered at (cx, cy) pointing toward
+        compass ``heading`` (0=N/up, 90=E/right). Pure geometry — returns [] for
+        a missing/invalid heading so the caller can skip drawing.
+        """
+        try:
+            deg = float(heading) % 360
+        except (TypeError, ValueError):
+            return []
+        rad = math.radians(deg)
+        # Screen space: +y is down, so North (0°) points to (0, -1).
+        fx, fy = math.sin(rad), -math.cos(rad)   # forward unit vector (toward tip)
+        px, py = -fy, fx                         # perpendicular (right of travel)
+        back = size * 0.7                        # how far the base sits behind center
+        half = size * 0.6                        # half-width of the base
+        tip = (cx + fx * size, cy + fy * size)
+        left = (cx - fx * back + px * half, cy - fy * back + py * half)
+        right = (cx - fx * back - px * half, cy - fy * back - py * half)
+        return [tip, left, right]
+
+    def _draw_heading_arrow(self, draw, cx, cy, size, heading, color=(255, 255, 255)):
+        """Draw a filled triangular arrow pointing in the compass ``heading``."""
+        pts = self._heading_arrow_points(cx, cy, size, heading)
+        if pts:
+            draw.polygon(pts, fill=color)
+
+    def _draw_metric_strip_justified(self, draw, x0, x1, y, font, alt, spd, dist, alt_color):
+        """Draw the altitude/speed/distance values justified across [x0, x1] —
+        fills the horizontal space on wide panels instead of clustering left.
+        Values only (units disambiguate, same as the compact strip)."""
+        items = [(alt, alt_color), (spd, (180, 180, 180)), (dist, (180, 180, 180))]
+        seg_w = [self._tw(draw, val, font) for val, _ in items]
+        n = len(items)
+        slack = (x1 - x0) - sum(seg_w)
+        step = slack / (n - 1) if n > 1 and slack > 0 else self._tw(draw, "  ", font)
+        x = float(x0)
+        for (value, vcol), sw in zip(items, seg_w):
+            self._draw(draw, value, (round(x), y), font, vcol)
+            x += sw + step
+
+    def _draw_progress_bar(self, draw, x0, x1, y, progress, color):
+        """Horizontal flight-progress bar from x0..x1 centered on row y: a dim
+        track, a filled portion up to `progress` in the aircraft color, end ticks,
+        and a small triangle marker riding the fill position toward the destination."""
+        p = max(0.0, min(1.0, progress))
+        draw.line([(x0, y), (x1, y)], fill=(70, 70, 70))
+        fx = x0 + round((x1 - x0) * p)
+        if fx > x0:
+            draw.line([(x0, y), (fx, y)], fill=color)
+        for ex in (x0, x1):
+            draw.line([(ex, y - 1), (ex, y + 1)], fill=(120, 120, 120))
+        t = max(3, 2 * self.sprite_scale)
+        mx = min(max(fx, x0 + t), x1 - t)          # keep the marker on the track
+        self._draw_heading_arrow(draw, mx, y, t, 90, (255, 255, 255))  # points right
+
+    def _render_overhead_to_image(self, aircraft, progress=None, delay="", delay_color=None):
+        """Hero card for the 'plane overhead now' moment: airline logo, big
+        callsign, route + progress, a heading-arrow badge, and an ALT/SPD/DIST
+        metric strip. Size-adaptive off self.width/height. Returns the image.
+        """
+        w, h = self.width, self.height
+        img = Image.new("RGB", (w, h), (0, 0, 0))
+        draw = ImageDraw.Draw(img)
+
+        if not aircraft:
+            self._draw_centered(draw, "No Aircraft", (h - self._fh(self.font_medium)) // 2,
+                                self.font_medium, self.dim_color)
+            return img
+
+        callsign = aircraft.get("callsign", "---")
+        color = tuple(aircraft.get("color", self.header_color))
+        airline_icao = aircraft.get("airline_icao", "")
+        alt = self._fmt_alt(aircraft.get("altitude"))
+        spd = self._fmt_spd(aircraft.get("speed"))
+        dist = format_distance(aircraft.get("distance_miles"), self.units_legacy)
+        heading = aircraft.get("heading")
+        origin = aircraft.get("origin", "")
+        destination = aircraft.get("destination", "")
+        atype = aircraft.get("aircraft_type", "")
+        has_heading = heading is not None and heading != ""
+
+        # These pixel fonts report inflated getmetrics() line heights (≈13px for an
+        # 8px glyph), which won't stack on a 32px panel. Measure real ink extent and
+        # stack on a tight cursor instead.
+        def _ink(font, sample="ALT0"):
+            bb = draw.textbbox((0, 0), sample, font=font)
+            return bb[1], bb[3] - bb[1]  # (top offset, ink height)
+
+        top_s, ink_s = _ink(self.font_small)  # used by the compact badge
+        gap = 1
+
+        # Three size regimes:
+        #  - narrow  (<96px wide): no room for logo or badge — drop both, full-width text.
+        #  - spacious (>=48px tall): use the big font, a tall logo, an inline heading
+        #    arrow next to the callsign, and a labeled metric strip justified across
+        #    the width (no isolated right column / dead space).
+        #  - compact (the 128x32 default): logo + right-hand arrow/distance badge.
+        narrow = w < 96
+        spacious = h >= 48 and not narrow
+        hero_font = self.font_large if spacious else self.font_medium
+        body_font = self.font_medium if spacious else self.font_small
+        top_h, ink_h = _ink(hero_font)
+        top_b, ink_b = _ink(body_font)
+
+        # --- Right zone: heading-arrow + distance badge (compact panels only). ---
+        badge_w = 0
+        dist_in_badge = False
+        if has_heading and not narrow and not spacious:
+            want = max(self._tw(draw, dist, self.font_small) + 4, 18)
+            if want <= w * 0.4:
+                badge_w, dist_in_badge = want, True
+            else:
+                badge_w = max(10, min(int(w * 0.22), 18))  # arrow only
+            bx = w - badge_w
+            draw.line([(bx, 1), (bx, h - 2)], fill=(40, 40, 40))
+            if dist_in_badge:
+                arrow_cy = max(ink_s, (h - ink_s) // 2 - 1)
+                self._draw_centered(draw, dist, h - ink_s - 1 - top_s, self.font_small,
+                                    (180, 180, 180), zone_x=bx, zone_w=badge_w)
+            else:
+                arrow_cy = h // 2
+            arrow_sz = max(3, min(badge_w - 4, h // 2) // 2 + 1)
+            self._draw_heading_arrow(draw, bx + badge_w // 2, arrow_cy,
+                                     arrow_sz, heading, color)
+
+        # --- Left zone: airline logo (tall on spacious, capped on compact). When
+        # there's no logo, render text from the left margin — the "sprite" returned
+        # by get_sprite_for_aircraft is a colored map dot, not a plane, so it just
+        # adds a meaningless blob (altitude is already encoded in the callsign color). ---
+        text_x = 2
+        logo = None
+        if airline_icao and not narrow:
+            logo_h = (h - 8) if spacious else min(h - 4, 22)
+            # Cap logo width so wide wordmark logos can't crowd out the text.
+            logo = _load_airline_logo(airline_icao, logo_h,
+                                      max_w=max(logo_h, int(w * 0.24)))
+        if logo:
+            img.paste(logo, (2, (h - logo.height) // 2), logo)
+            text_x = 2 + logo.width + 3
+            draw.line([(text_x - 2, 1), (text_x - 2, h - 2)], fill=(40, 40, 40))
+
+        right_edge = w - badge_w - (2 if badge_w else 0)
+        main_w = right_edge - text_x
+
+        # On spacious panels, flight progress is a bar across the bottom (with a
+        # plane riding it) rather than a "99%" suffix on the route line.
+        use_bar = spacious and progress is not None and bool(origin and destination)
+
+        # Route, with progress appended only if it fits (never truncate mid-word).
+        route = ""
+        if origin and destination:
+            route = f"{origin}>{destination}"
+            if progress is not None and not use_bar:
+                pct = int(progress * 100)
+                for cand in (f"{route} {pct}%", f"{route}{pct}%"):
+                    if self._tw(draw, cand, body_font) <= main_w:
+                        route = cand
+                        break
+        elif atype and atype != "Unknown":
+            route = atype
+
+        # --- Row stack: callsign hero, metric strip, route, delay — vertically
+        # centered (above the progress bar's reserved band) so it reads on both
+        # 32px and taller panels. ---
+        bar_band = (4 * self.sprite_scale + 5) if use_bar else 0
+        rows = [ink_h, ink_b]               # callsign, metric strip (always)
+        if route:
+            rows.append(ink_b)
+        if delay:
+            rows.append(ink_b)
+        block_h = sum(rows) + gap * (len(rows) - 1)
+        iy = max(1, (h - bar_band - block_h) // 2 + 1)
+
+        # P1: callsign hero. When there's no logo, trail the friendly airline name
+        # (dim, bottom-aligned) so the airline is still identifiable; on spacious
+        # panels an inline heading arrow follows.
+        cs = self._truncate(draw, callsign, hero_font, main_w)
+        self._draw(draw, cs, (text_x, iy - top_h), hero_font, color)
+        cx = text_x + self._tw(draw, cs, hero_font) + 4
+        airline_name = aircraft.get("airline_name") or ""
+        if not logo and airline_name and cx < right_edge - 6:
+            nm = self._truncate(draw, airline_name, body_font, right_edge - cx)
+            self._draw(draw, nm, (cx, iy + ink_h - ink_b - top_b), body_font, self.dim_color)
+            cx += self._tw(draw, nm, body_font) + 4
+        if spacious and has_heading and cx + ink_h // 2 <= right_edge:
+            self._draw_heading_arrow(draw, cx + ink_h // 2, iy + ink_h // 2,
+                                     max(4, ink_h // 2), heading, color)
+        iy += ink_h + gap
+
+        # P2: metric strip — justified+labeled on spacious, values-only on compact.
+        if iy + ink_b <= h:
+            if spacious:
+                self._draw_metric_strip_justified(draw, text_x, right_edge, iy - top_b,
+                                                  body_font, alt, spd, dist, color)
+            else:
+                metrics = [(alt, color), (spd, (180, 180, 180))]
+                if not dist_in_badge:
+                    metrics.append((dist, (180, 180, 180)))
+                x = text_x
+                for value, col in metrics:
+                    vw = self._tw(draw, value, body_font)
+                    if x + vw > right_edge:
+                        break
+                    self._draw(draw, value, (x, iy - top_b), body_font, col)
+                    x += vw + 4
+            iy += ink_b + gap
+
+        # P3: route + progress
+        if route and iy + ink_b <= h:
+            self._draw(draw, self._truncate(draw, route, body_font, main_w),
+                       (text_x, iy - top_b), body_font, self.route_color)
+            iy += ink_b + gap
+
+        # P4: delay/status, if any space remains
+        if delay and iy + ink_b <= h:
+            self._draw(draw, self._truncate(draw, delay, body_font, main_w),
+                       (text_x, iy - top_b), body_font, delay_color or (200, 200, 200))
+
+        # Progress bar across the bottom (spacious panels only)
+        if use_bar:
+            self._draw_progress_bar(draw, text_x, w - 4, h - 1 - bar_band // 2,
+                                    progress, color)
+
+        return img
+
+    def render_overhead(self, aircraft, progress=None, delay="", delay_color=None):
+        img = self._render_overhead_to_image(aircraft, progress, delay, delay_color)
+        self.dm.image = img.copy()
+        self.dm.update_display()
+
+    def render_overhead_image(self, aircraft, progress=None, delay="", delay_color=None):
+        return self._render_overhead_to_image(aircraft, progress, delay, delay_color)
 
     # =====================================================================
     # Stats Cards
