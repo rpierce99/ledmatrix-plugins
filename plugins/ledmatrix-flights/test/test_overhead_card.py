@@ -147,6 +147,32 @@ def test_renders_without_heading_or_route():
     assert img.getbbox() is not None
 
 
+def test_narrow_panel_uses_full_width_text():
+    # On a 64-wide panel there's no room for the logo/sprite or the heading badge;
+    # both are dropped so the callsign/route get the full width (no separators).
+    r = make_renderer(64, 32)
+    img = r.render_overhead_image(_aircraft(), progress=0.99)
+    assert img.getbbox() is not None
+    # No vertical separator lines (logo/badge dividers) should be drawn.
+    import PIL.ImageDraw as _ID2
+    seps = []
+    orig = _ID2.ImageDraw.line
+
+    def rec(self, xy, *a, **k):
+        seps.append(xy)
+        return orig(self, xy, *a, **k)
+
+    _ID2.ImageDraw.line = rec
+    try:
+        r.render_overhead_image(_aircraft(), progress=0.99)
+    finally:
+        _ID2.ImageDraw.line = orig
+    assert seps == [], f"narrow panel should draw no logo/badge separators, got {seps}"
+    # Callsign is drawn in full (not truncated to a couple of chars).
+    texts = _capture_text(lambda: r.render_overhead_image(_aircraft(), progress=0.99))
+    assert any(t == "UAL360" for t in texts), texts
+
+
 def test_empty_aircraft_is_safe():
     r = make_renderer(128, 32)
     img = r.render_overhead_image(None)

@@ -671,6 +671,35 @@ class FlightRenderer:
         if pts:
             draw.polygon(pts, fill=color)
 
+    def _draw_metric_strip_justified(self, draw, x0, x1, y, font, alt, spd, dist, alt_color):
+        """Draw the altitude/speed/distance values justified across [x0, x1] —
+        fills the horizontal space on wide panels instead of clustering left.
+        Values only (units disambiguate, same as the compact strip)."""
+        items = [(alt, alt_color), (spd, (180, 180, 180)), (dist, (180, 180, 180))]
+        seg_w = [self._tw(draw, val, font) for val, _ in items]
+        n = len(items)
+        slack = (x1 - x0) - sum(seg_w)
+        step = slack / (n - 1) if n > 1 and slack > 0 else self._tw(draw, "  ", font)
+        x = float(x0)
+        for (value, vcol), sw in zip(items, seg_w):
+            self._draw(draw, value, (round(x), y), font, vcol)
+            x += sw + step
+
+    def _draw_progress_bar(self, draw, x0, x1, y, progress, color):
+        """Horizontal flight-progress bar from x0..x1 centered on row y: a dim
+        track, a filled portion up to `progress` in the aircraft color, end ticks,
+        and a small triangle marker riding the fill position toward the destination."""
+        p = max(0.0, min(1.0, progress))
+        draw.line([(x0, y), (x1, y)], fill=(70, 70, 70))
+        fx = x0 + round((x1 - x0) * p)
+        if fx > x0:
+            draw.line([(x0, y), (fx, y)], fill=color)
+        for ex in (x0, x1):
+            draw.line([(ex, y - 1), (ex, y + 1)], fill=(120, 120, 120))
+        t = max(3, 2 * self.sprite_scale)
+        mx = min(max(fx, x0 + t), x1 - t)          # keep the marker on the track
+        self._draw_heading_arrow(draw, mx, y, t, 90, (255, 255, 255))  # points right
+
     def _render_overhead_to_image(self, aircraft, progress=None, delay="", delay_color=None):
         """Hero card for the 'plane overhead now' moment: airline logo, big
         callsign, route + progress, a heading-arrow badge, and an ALT/SPD/DIST
@@ -704,16 +733,26 @@ class FlightRenderer:
             bb = draw.textbbox((0, 0), sample, font=font)
             return bb[1], bb[3] - bb[1]  # (top offset, ink height)
 
-        top_m, ink_m = _ink(self.font_medium)
-        top_s, ink_s = _ink(self.font_small)
+        top_s, ink_s = _ink(self.font_small)  # used by the compact badge
         gap = 1
 
-        # --- Right zone: heading badge. Show the distance under the arrow only
-        # when the badge can be reasonably wide (≤40% of the panel); otherwise
-        # draw an arrow-only badge and fold distance back into the metric strip. ---
+        # Three size regimes:
+        #  - narrow  (<96px wide): no room for logo or badge — drop both, full-width text.
+        #  - spacious (>=48px tall): use the big font, a tall logo, an inline heading
+        #    arrow next to the callsign, and a labeled metric strip justified across
+        #    the width (no isolated right column / dead space).
+        #  - compact (the 128x32 default): logo + right-hand arrow/distance badge.
+        narrow = w < 96
+        spacious = h >= 48 and not narrow
+        hero_font = self.font_large if spacious else self.font_medium
+        body_font = self.font_medium if spacious else self.font_small
+        top_h, ink_h = _ink(hero_font)
+        top_b, ink_b = _ink(body_font)
+
+        # --- Right zone: heading-arrow + distance badge (compact panels only). ---
         badge_w = 0
         dist_in_badge = False
-        if has_heading:
+        if has_heading and not narrow and not spacious:
             want = max(self._tw(draw, dist, self.font_small) + 4, 18)
             if want <= w * 0.4:
                 badge_w, dist_in_badge = want, True
@@ -731,16 +770,17 @@ class FlightRenderer:
             self._draw_heading_arrow(draw, bx + badge_w // 2, arrow_cy,
                                      arrow_sz, heading, color)
 
-        # --- Left zone: airline logo (only when there's width to spare, and capped
-        # so it never dominates), else a small plane sprite, else a bare margin. ---
+        # --- Left zone: airline logo (tall on spacious, capped on compact), else a
+        # small plane sprite on compact panels; nothing on narrow panels. ---
         text_x = 2
-        logo = (_load_airline_logo(airline_icao, min(h - 4, 22))
-                if airline_icao and w >= 96 else None)
+        logo = None
+        if airline_icao and not narrow:
+            logo = _load_airline_logo(airline_icao, (h - 8) if spacious else min(h - 4, 22))
         if logo:
             img.paste(logo, (2, (h - logo.height) // 2), logo)
             text_x = 2 + logo.width + 3
             draw.line([(text_x - 2, 1), (text_x - 2, h - 2)], fill=(40, 40, 40))
-        else:
+        elif not narrow and not spacious:
             sw = self._draw_sprite(draw, 2, (h - 8 * self.sprite_scale) // 2,
                                    airline_icao=airline_icao, callsign=callsign)
             if sw:
@@ -749,58 +789,78 @@ class FlightRenderer:
         right_edge = w - badge_w - (2 if badge_w else 0)
         main_w = right_edge - text_x
 
+        # On spacious panels, flight progress is a bar across the bottom (with a
+        # plane riding it) rather than a "99%" suffix on the route line.
+        use_bar = spacious and progress is not None and bool(origin and destination)
+
         # Route, with progress appended only if it fits (never truncate mid-word).
         route = ""
         if origin and destination:
             route = f"{origin}>{destination}"
-            if progress is not None:
+            if progress is not None and not use_bar:
                 pct = int(progress * 100)
                 for cand in (f"{route} {pct}%", f"{route}{pct}%"):
-                    if self._tw(draw, cand, self.font_small) <= main_w:
+                    if self._tw(draw, cand, body_font) <= main_w:
                         route = cand
                         break
         elif atype and atype != "Unknown":
             route = atype
 
-        # --- Main text zone: callsign hero, metric strip, route, delay. Center the
-        # block vertically so it reads well on both 32px and taller panels. ---
-        metrics = [(alt, color), (spd, (180, 180, 180))]
-        if not dist_in_badge:
-            metrics.append((dist, (180, 180, 180)))
-        planned = [ink_m, ink_s]            # callsign, metric strip (always)
+        # --- Row stack: callsign hero, metric strip, route, delay — vertically
+        # centered (above the progress bar's reserved band) so it reads on both
+        # 32px and taller panels. ---
+        bar_band = (4 * self.sprite_scale + 5) if use_bar else 0
+        rows = [ink_h, ink_b]               # callsign, metric strip (always)
         if route:
-            planned.append(ink_s)
+            rows.append(ink_b)
         if delay:
-            planned.append(ink_s)
-        block_h = sum(planned) + gap * (len(planned) - 1)
-        iy = max(1, (h - block_h) // 2 + 1)
+            rows.append(ink_b)
+        block_h = sum(rows) + gap * (len(rows) - 1)
+        iy = max(1, (h - bar_band - block_h) // 2 + 1)
 
-        # P1: callsign (hero)
-        self._draw(draw, self._truncate(draw, callsign, self.font_medium, main_w),
-                   (text_x, iy - top_m), self.font_medium, color)
-        iy += ink_m + gap
+        # P1: callsign hero (+ inline heading arrow on spacious panels)
+        cs = self._truncate(draw, callsign, hero_font, main_w)
+        self._draw(draw, cs, (text_x, iy - top_h), hero_font, color)
+        if spacious and has_heading:
+            ax = text_x + self._tw(draw, cs, hero_font) + ink_h
+            if ax + ink_h // 2 <= right_edge:
+                self._draw_heading_arrow(draw, ax, iy + ink_h // 2,
+                                         max(4, ink_h // 2), heading, color)
+        iy += ink_h + gap
 
-        # P2: metric strip — values only (units disambiguate); altitude colored.
-        if iy + ink_s <= h:
-            x = text_x
-            for value, col in metrics:
-                vw = self._tw(draw, value, self.font_small)
-                if x + vw > right_edge:
-                    break
-                self._draw(draw, value, (x, iy - top_s), self.font_small, col)
-                x += vw + 4
-            iy += ink_s + gap
+        # P2: metric strip — justified+labeled on spacious, values-only on compact.
+        if iy + ink_b <= h:
+            if spacious:
+                self._draw_metric_strip_justified(draw, text_x, right_edge, iy - top_b,
+                                                  body_font, alt, spd, dist, color)
+            else:
+                metrics = [(alt, color), (spd, (180, 180, 180))]
+                if not dist_in_badge:
+                    metrics.append((dist, (180, 180, 180)))
+                x = text_x
+                for value, col in metrics:
+                    vw = self._tw(draw, value, body_font)
+                    if x + vw > right_edge:
+                        break
+                    self._draw(draw, value, (x, iy - top_b), body_font, col)
+                    x += vw + 4
+            iy += ink_b + gap
 
         # P3: route + progress
-        if route and iy + ink_s <= h:
-            self._draw(draw, self._truncate(draw, route, self.font_small, main_w),
-                       (text_x, iy - top_s), self.font_small, self.route_color)
-            iy += ink_s + gap
+        if route and iy + ink_b <= h:
+            self._draw(draw, self._truncate(draw, route, body_font, main_w),
+                       (text_x, iy - top_b), body_font, self.route_color)
+            iy += ink_b + gap
 
         # P4: delay/status, if any space remains
-        if delay and iy + ink_s <= h:
-            self._draw(draw, self._truncate(draw, delay, self.font_small, main_w),
-                       (text_x, iy - top_s), self.font_small, delay_color or (200, 200, 200))
+        if delay and iy + ink_b <= h:
+            self._draw(draw, self._truncate(draw, delay, body_font, main_w),
+                       (text_x, iy - top_b), body_font, delay_color or (200, 200, 200))
+
+        # Progress bar across the bottom (spacious panels only)
+        if use_bar:
+            self._draw_progress_bar(draw, text_x, w - 4, h - 1 - bar_band // 2,
+                                    progress, color)
 
         return img
 
