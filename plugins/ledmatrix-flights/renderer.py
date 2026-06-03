@@ -61,9 +61,13 @@ _LOGO_DIR_CANDIDATES = [
 _logo_cache: Dict[str, Optional[Image.Image]] = {}
 
 
-def _load_airline_logo(icao: str, max_h: int) -> Optional[Image.Image]:
-    """Load and scale an airline logo PNG. Returns RGBA image or None."""
-    key = f"{icao}_{max_h}"
+def _load_airline_logo(icao: str, max_h: int, max_w: Optional[int] = None) -> Optional[Image.Image]:
+    """Load and scale an airline logo PNG to fit within (max_w, max_h), preserving
+    aspect. ``max_w`` defaults to 2*max_h; pass a tighter cap so wide wordmark logos
+    (e.g. SkyWest) don't crowd out the text. Returns RGBA image or None."""
+    if max_w is None:
+        max_w = max_h * 2
+    key = f"{icao}_{max_h}_{max_w}"
     if key in _logo_cache:
         return _logo_cache[key]
 
@@ -75,8 +79,7 @@ def _load_airline_logo(icao: str, max_h: int) -> Optional[Image.Image]:
                 bbox = logo.getbbox()
                 if bbox:
                     logo = logo.crop(bbox)
-                # Allow wider logos — cap height to max_h, scale width proportionally
-                logo.thumbnail((max_h * 2, max_h), Image.Resampling.LANCZOS)
+                logo.thumbnail((max_w, max_h), Image.Resampling.LANCZOS)
                 _logo_cache[key] = logo
                 logger.info(f"[Flight Tracker] Loaded airline logo: {icao} ({logo.size[0]}x{logo.size[1]})")
                 return logo
@@ -775,7 +778,10 @@ class FlightRenderer:
         text_x = 2
         logo = None
         if airline_icao and not narrow:
-            logo = _load_airline_logo(airline_icao, (h - 8) if spacious else min(h - 4, 22))
+            logo_h = (h - 8) if spacious else min(h - 4, 22)
+            # Cap logo width so wide wordmark logos can't crowd out the text.
+            logo = _load_airline_logo(airline_icao, logo_h,
+                                      max_w=max(logo_h, int(w * 0.24)))
         if logo:
             img.paste(logo, (2, (h - logo.height) // 2), logo)
             text_x = 2 + logo.width + 3
