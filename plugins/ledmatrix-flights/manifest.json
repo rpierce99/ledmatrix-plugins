@@ -1,7 +1,7 @@
 {
   "id": "ledmatrix-flights",
   "name": "Flight Tracker",
-  "version": "1.7.0",
+  "version": "1.8.2",
   "description": "Real-time aircraft tracking with ADS-B/FlightRadar24/OpenSky/adsb.fi/adsb.lol data, map backgrounds, area mode, flight tracking, anchor airport, and flight records",
   "author": "ChuckBuilds",
   "entry_point": "manager.py",
@@ -34,6 +34,12 @@
   "min_ledmatrix_version": "2.0.0",
   "max_ledmatrix_version": "3.0.0",
   "versions": [
+    {
+      "released": "2026-06-02",
+      "version": "1.8.2",
+      "notes": "Redesign the overhead (plane-overhead / live-priority) view as a size-adaptive 'card' and move it into the shared renderer alongside area/stats. Compact 128x32: airline logo + colored callsign hero, altitude/speed value strip, route + progress, and a heading-arrow + distance badge. Narrow (<96px wide): drop the logo and badge, full-width text. Spacious (>=48px tall, e.g. 256x64): large font, tall logo, inline heading arrow, metric values justified across the width, and flight progress as a bar across the bottom with a triangle marker. Logo width is capped so wide wordmark logos (e.g. SkyWest) don't crowd the text; when there's no logo the friendly airline name is shown next to the callsign. Fixes the duplicate airline tag (the old 'UAL360 UAL') and the unrenderable degree glyph in the heading ('HDG:227deg').",
+      "ledmatrix_min": "2.0.0"
+    },
     {
       "released": "2026-06-01",
       "version": "1.7.0",
