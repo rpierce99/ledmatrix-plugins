@@ -17,7 +17,7 @@ from typing import Dict, Tuple
 
 from PIL import Image, ImageDraw, ImageFont
 
-from data_model import Race
+from data_model import Race, chamber_of_office
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +78,11 @@ def font(size: int) -> ImageFont.ImageFont:
 
 
 def office_abbrev(race: Race) -> str:
-    base = _OFFICE_ABBREV.get(race.office, race.office[:4].upper())
+    base = _OFFICE_ABBREV.get(race.office)
+    if base is None:
+        # Any state legislature chamber, however a given state names it.
+        chamber = chamber_of_office(race.office)
+        base = {"upper": "ST SEN", "lower": "ST HSE"}.get(chamber, race.office[:4].upper())
     loc = race.state or "US"
     if race.district:
         return f"{base} {loc}-{race.district}"

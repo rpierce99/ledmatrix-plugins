@@ -122,16 +122,16 @@
       "description": "Where your state has an authoritative results source, use it for granular/local results on top of the national baseline. Auto-engages by state (currently California); no effect for states not yet supported.",
       "default": true
     },
-    "assembly_district": {
+    "lower_chamber_district": {
       "type": "string",
-      "title": "State Assembly/House District",
-      "description": "Your lower-chamber legislative district number. Set this to show that local race in the ticker (the feed carries every district; this picks out yours). Empty = off. CA: find yours at findyourrep.legislature.ca.gov.",
+      "title": "Lower Chamber District",
+      "description": "Your state legislature lower-chamber district number — whatever your state calls it (CA: State Assembly; VA/MD/WV: House of Delegates; NJ: General Assembly; most states: State House). Set this to show that local race in the ticker; the feed carries every district and this picks out yours. Empty = off. (Alias: assembly_district.)",
       "default": ""
     },
-    "senate_district": {
+    "upper_chamber_district": {
       "type": "string",
-      "title": "State Senate District",
-      "description": "Your state senate district number. Set this to show that local race in the ticker. Empty = off.",
+      "title": "Upper Chamber (Senate) District",
+      "description": "Your state senate district number. Set this to show that local race in the ticker. Empty = off. (Alias: senate_district.)",
       "default": ""
     },
     "race_types": {

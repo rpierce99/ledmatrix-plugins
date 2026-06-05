@@ -256,7 +256,7 @@ def test_diff():
 
 
 # ---------------------------------------------------------------------------
-# 8. Local races (State Assembly / State Senate by district)
+# 8. Local races (state legislature by chamber district, any state)
 # ---------------------------------------------------------------------------
 
 def test_ca_sos_defaults():
@@ -264,6 +264,21 @@ def test_ca_sos_defaults():
     p = CaSosProvider({})
     check(p.offices == [] and p.include_house is False,
           "CA-SoS contributes nothing by default (NYT already covers CA races)")
+
+
+def test_chamber_classification():
+    print("[Chamber classification]")
+    from data_model import chamber_of_office
+    check(chamber_of_office("State Senate") == "upper", "State Senate -> upper")
+    check(chamber_of_office("State Assembly") == "lower", "State Assembly -> lower")
+    check(chamber_of_office("State House") == "lower", "State House -> lower")
+    check(chamber_of_office("House of Delegates") == "lower", "House of Delegates -> lower")
+    check(chamber_of_office("General Assembly") == "lower", "General Assembly -> lower")
+    # Federal offices that share the words must NOT classify as local.
+    check(chamber_of_office("U.S. Senate") is None, "U.S. Senate is not local")
+    check(chamber_of_office("U.S. House") is None, "U.S. House is not local")
+    check(chamber_of_office("Governor") is None, "Governor is not local")
+    check(chamber_of_office(None) is None, "None office is not local")
 
 
 def test_local_races():
@@ -279,20 +294,54 @@ def test_local_races():
     check(asm1.pct_reporting < 100.0,
           f"local race reporting isn't a false 100% (got {asm1.pct_reporting})")
 
-    # Show only the user's configured district; the other ~99 are dropped, and
+    # Show only the user's configured chamber district; the rest are dropped, and
     # the local races bypass race_types (here only 'governor' is listed).
-    districts = {"State Assembly": "1", "State Senate": "2"}
+    districts = {"lower": "1", "upper": "2"}
     kept = RaceStore.filter_races(races, "CA", only_my_state=True,
                                   race_types=["governor"], local_districts=districts)
     local_ids = {r.id for r in kept if r.office in ("State Assembly", "State Senate")}
     check(local_ids == {"state-assembly-ca-1", "state-senate-ca-2"},
-          f"only the configured local districts are kept (got {sorted(local_ids)})")
+          f"only the configured chamber districts are kept (got {sorted(local_ids)})")
 
     # With no district configured, no legislative races show (avoids flooding the
     # ticker with all 80 + 40 of them).
     none_kept = RaceStore.filter_races(races, "CA", only_my_state=True, race_types=["governor"])
     check(not any(r.office in ("State Assembly", "State Senate") for r in none_kept),
           "no local races without district config")
+
+
+def test_local_races_other_state():
+    print("[Local races - non-CA chamber names]")
+    # A state that names its lower chamber "House of Delegates" (e.g. VA) must
+    # work the same as CA's "State Assembly".
+    hod = Race(id="house-of-delegates-va-5", office="House of Delegates", state="VA",
+               scope=Scope.DISTRICT, district="5",
+               candidates=[Candidate("X", "D", 10, 50.0)])
+    senate = Race(id="state-senate-va-9", office="State Senate", state="VA",
+                  scope=Scope.DISTRICT, district="9",
+                  candidates=[Candidate("Y", "R", 8, 45.0)])
+    other = Race(id="state-senate-va-3", office="State Senate", state="VA",
+                 scope=Scope.DISTRICT, district="3",
+                 candidates=[Candidate("Z", "R", 8, 45.0)])
+    kept = RaceStore.filter_races([hod, senate, other], "VA", only_my_state=True,
+                                  race_types=["governor"],
+                                  local_districts={"lower": "5", "upper": "9"})
+    ids = {r.id for r in kept}
+    check(ids == {"house-of-delegates-va-5", "state-senate-va-9"},
+          f"non-CA chamber names matched by district (got {sorted(ids)})")
+
+
+def test_district_aliases():
+    print("[District config aliases]")
+    from manager import ElectionPlugin
+    neutral = ElectionPlugin._build_local_districts(
+        {"upper_chamber_district": "9", "lower_chamber_district": "5"})
+    check(neutral == {"upper": "9", "lower": "5"}, "chamber-neutral keys map to chambers")
+    ca = ElectionPlugin._build_local_districts(
+        {"senate_district": "2", "assembly_district": "1"})
+    check(ca == {"upper": "2", "lower": "1"}, "CA-style aliases still work")
+    check(ElectionPlugin._build_local_districts({"assembly_district": "x"}) == {},
+          "non-numeric district ignored")
 
 
 def test_status_label():
@@ -312,7 +361,8 @@ def test_status_label():
 def main():
     for fn in (test_nyt_parse, test_nyt_build_url, test_nyt_race_calls, test_ca_sos_parse,
                test_filters, test_merge, test_sort, test_diff,
-               test_ca_sos_defaults, test_local_races, test_status_label):
+               test_ca_sos_defaults, test_chamber_classification, test_local_races,
+               test_local_races_other_state, test_district_aliases, test_status_label):
         fn()
     print(f"\n{_passed} passed, {_failed} failed")
     sys.exit(0 if _failed == 0 else 1)

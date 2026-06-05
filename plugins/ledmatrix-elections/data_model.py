@@ -33,14 +33,34 @@ OFFICE_RANK = {
 }
 _DEFAULT_OFFICE_RANK = 99
 
-# Local legislative offices a state source (e.g. CA-SoS) contributes that the
-# national baseline never carries. They're opt-in via explicit district config,
-# so they bypass the race_types filter (configuring a district == wanting it).
-LOCAL_OFFICES = {"State Senate", "State Assembly"}
+# State-legislature chamber detection, generalized across states. Chamber names
+# vary ("State Senate"/"State Assembly" in CA/NV/NY/NJ/WI, "State House" or
+# "House of Delegates" or "General Assembly" elsewhere), so we classify by
+# keyword rather than an exact-name allowlist. Federal offices that share those
+# words ("U.S. Senate", "U.S. House") are excluded first.
+_FEDERAL_OFFICES = {"President", "U.S. Senate", "U.S. House"}
+_LOWER_CHAMBER_WORDS = ("house", "assembly", "delegates")
 
 
-def is_local_office(office: str) -> bool:
-    return office in LOCAL_OFFICES
+def chamber_of_office(office: Optional[str]) -> Optional[str]:
+    """Classify a state-legislature office as 'upper'/'lower', else None.
+
+    Used to surface the user's own local legislative races by chamber district,
+    regardless of how a given state names its chambers.
+    """
+    if not office or office in _FEDERAL_OFFICES:
+        return None
+    low = office.lower()
+    if "senate" in low:
+        return "upper"
+    if any(w in low for w in _LOWER_CHAMBER_WORDS):
+        return "lower"
+    return None
+
+
+def is_local_office(office: Optional[str]) -> bool:
+    """True for a state-legislature race (either chamber)."""
+    return chamber_of_office(office) is not None
 
 
 def office_rank(office: str) -> int:
@@ -131,7 +151,7 @@ def scope_for_office(office: str) -> Scope:
     """Infer geographic scope from the office label."""
     if office == "President":
         return Scope.NATIONAL
-    if office in ("U.S. House", "State Senate", "State Assembly"):
+    if office == "U.S. House" or chamber_of_office(office) is not None:
         return Scope.DISTRICT
     return Scope.STATEWIDE
 

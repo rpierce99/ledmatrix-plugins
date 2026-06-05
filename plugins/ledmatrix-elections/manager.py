@@ -283,16 +283,22 @@ class ElectionPlugin(BasePlugin):
 
     @staticmethod
     def _build_local_districts(config: dict) -> Dict[str, str]:
-        """Map local legislative offices to the user's configured district number."""
+        """Map legislature chamber ('upper'/'lower') to the user's district number.
+
+        Chamber-neutral keys work for any state; the CA-style ``senate_district``
+        / ``assembly_district`` are accepted as aliases.
+        """
         out: Dict[str, str] = {}
-        for key, office in (("assembly_district", "State Assembly"),
-                            ("senate_district", "State Senate")):
-            raw = config.get(key)
+        sources = {
+            "upper": config.get("upper_chamber_district") or config.get("senate_district"),
+            "lower": config.get("lower_chamber_district") or config.get("assembly_district"),
+        }
+        for chamber, raw in sources.items():
             if raw is None:
                 continue
             s = str(raw).strip()
             if s.isdigit():
-                out[office] = s
+                out[chamber] = s
         return out
 
     def _build_scroll_image(self) -> None:
