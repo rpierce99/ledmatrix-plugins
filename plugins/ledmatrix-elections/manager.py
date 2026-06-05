@@ -372,13 +372,13 @@ class ElectionPlugin(BasePlugin):
         if force_clear:
             try:
                 self.scroll_helper.reset_scroll()
-            except Exception:
-                pass
+            except Exception as e:
+                self.logger.debug("reset_scroll failed: %s", e)
 
         try:
             self.display_manager.set_scrolling_state(True)
-        except Exception:
-            pass
+        except Exception as e:
+            self.logger.debug("set_scrolling_state failed: %s", e)
 
         self.scroll_helper.update_scroll_position()
         visible = self.scroll_helper.get_visible_portion()
@@ -433,6 +433,6 @@ class ElectionPlugin(BasePlugin):
         self.logger.info("Cleaning up Elections plugin")
         try:
             self.scroll_helper.clear_cache()
-        except Exception:
-            pass
+        except Exception as e:
+            self.logger.debug("clear_cache failed: %s", e)
         super().cleanup()

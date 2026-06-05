@@ -62,8 +62,8 @@ class RaceStore:
                     f"elections_snapshot_{self._snapshot_key}",
                     {"snapshot": self._called_snapshot, "called_at": self._called_at},
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("snapshot persist failed: %s", e)
 
     # -- Merge --------------------------------------------------------------
 

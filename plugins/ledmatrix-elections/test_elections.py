@@ -193,7 +193,6 @@ def test_merge():
     check(gov.source == "nyt+ca_sos", f"merge marks combined source (got {gov.source})")
     check(abs(gov.pct_reporting - 100.0) < 0.01, "merge takes CA-SoS authoritative reporting %")
     # CA-SoS-only races (house) are absent here; NYT races elsewhere untouched.
-    wa_like = [r for r in merged if r.state == "CA"]
     check(len(merged) == len(nyt_races), "merge does not drop or duplicate races")
 
     store_no = RaceStore(override_votes=False)
