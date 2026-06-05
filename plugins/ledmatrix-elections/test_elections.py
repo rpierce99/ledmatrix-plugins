@@ -183,6 +183,7 @@ def test_merge():
     nyt_gov = next(r for r in nyt_races if r.id == "governor-ca")
     nyt_gov_called = nyt_gov.called
     nyt_gov_key = nyt_gov.is_key_race()
+    nyt_gov_reporting = nyt_gov.pct_reporting
 
     store = RaceStore(override_votes=True)
     merged = store.merge([(nyt, nyt_races), (ca, [ca_gov])])
@@ -191,7 +192,14 @@ def test_merge():
     check(gov.called == nyt_gov_called, "merge keeps NYT called flag")
     check(gov.is_key_race() == nyt_gov_key, "merge keeps NYT key-race marker")
     check(gov.source == "nyt+ca_sos", f"merge marks combined source (got {gov.source})")
-    check(abs(gov.pct_reporting - 100.0) < 0.01, "merge takes CA-SoS authoritative reporting %")
+    # CA-SoS reports "% of precincts reporting" (100% on election night while mail
+    # ballots are still counted). NYT eevp is the honest "% of expected vote in",
+    # so the merge must keep NYT's reporting, not the local source's 100%.
+    check(abs(gov.pct_reporting - nyt_gov_reporting) < 0.01,
+          f"merge keeps NYT eevp reporting, not CA-SoS precinct % (got {gov.pct_reporting})")
+    becerra = next((c for c in gov.candidates if c.name == "Xavier Becerra"), None)
+    check(becerra is not None and becerra.votes == 1267070,
+          "merge still takes CA-SoS authoritative vote totals")
     # CA-SoS-only races (house) are absent here; NYT races elsewhere untouched.
     check(len(merged) == len(nyt_races), "merge does not drop or duplicate races")
 

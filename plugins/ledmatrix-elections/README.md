@@ -129,7 +129,7 @@ completeness (`called_threshold`, default 99%) with the top two advancing.
 
 ## Architecture / adding a provider
 
-```
+```text
 ElectionProvider (ABC)          providers/__init__.py
   ├─ NytStaticProvider          providers/nyt.py   (baseline: national + all states)
   └─ CaSosProvider              providers/ca_sos.py (CA-only enhancement)

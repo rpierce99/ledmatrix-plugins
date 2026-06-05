@@ -104,10 +104,14 @@ class RaceStore:
 
         # Return a new Race so provider input lists are never mutated; preserve
         # the baseline's calls/importance markers (carried as dynamic attrs).
+        # Keep the baseline's pct_reporting: NYT's eevp estimates the share of the
+        # *expected vote* that's counted, which is the honest "% in". A local
+        # source like CA-SoS reports "% of precincts reporting" instead — that
+        # hits 100% on election night while weeks of mail/provisional ballots are
+        # still being counted, so letting it override would falsely read 100%.
         combined = replace(
             base,
             candidates=supp.candidates,
-            pct_reporting=supp.pct_reporting,
             title=supp.title or base.title,
             source=f"{base.source}+{supp.source}",
             last_updated=supp.last_updated,

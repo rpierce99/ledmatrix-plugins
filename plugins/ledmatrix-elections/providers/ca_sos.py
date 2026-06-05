@@ -137,7 +137,8 @@ class CaSosProvider(ElectionProvider):
 
     def _fetch_json(self, url: str, cache_key: str) -> Optional[Any]:
         try:
-            resp = requests.get(url, timeout=self.timeout)
+            resp = requests.get(url, timeout=self.timeout,
+                                headers={"User-Agent": "LEDMatrix-Elections/1.0"})
             resp.raise_for_status()
             data = resp.json()
             if self.cache_manager:

@@ -299,7 +299,9 @@ def test_local_provider_autoengage():
     from providers import create_providers
     from providers.ca_sos import CaSosProvider
 
-    names = lambda cfg: [p.name for p in create_providers(cfg, None)]
+    def names(cfg):
+        return [p.name for p in create_providers(cfg, None)]
+
     check("ca_sos" in names({"state": "CA"}),
           "CA auto-engages the local source with no per-provider flag")
     check("ca_sos" not in names({"state": "WA"}),

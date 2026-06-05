@@ -7,6 +7,7 @@ the plugin (store, renderer, manager) never sees provider-specific shapes.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import List, Optional
@@ -38,7 +39,7 @@ def office_rank(office: str) -> int:
 @dataclass
 class Candidate:
     name: str
-    party: str            # "D" | "R" | "I" | "G" | "L" | "O" (normalized single letter)
+    party: str            # "D" | "R" | "I" | "G" | "L" | "N" | "P" | "O" (normalized single letter)
     votes: int
     pct: float            # 0-100
     incumbent: bool = False
@@ -90,8 +91,6 @@ _PARTY_MAP = {
 }
 
 
-import re
-
 # Map a (normalized) office label to a race-type token for the race_types filter.
 _RACE_TYPE_OF_OFFICE = {
     "President": "president",
@@ -141,7 +140,4 @@ def normalize_party(raw: Optional[str]) -> str:
     if not raw:
         return "O"
     key = str(raw).strip().upper().rstrip(".")
-    if key in _PARTY_MAP:
-        return _PARTY_MAP[key]
-    # Re-check with the trailing dot variant present in the table.
-    return _PARTY_MAP.get(key + ".", "O")
+    return _PARTY_MAP.get(key, "O")
