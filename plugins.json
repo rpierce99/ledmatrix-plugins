@@ -826,6 +826,29 @@
       "latest_version": "1.0.2"
     },
     {
+      "id": "ledmatrix-elections",
+      "name": "Election Results",
+      "description": "Live election results: a scrolling ticker of important races plus a full-screen interrupt when a race is newly called. Auto-activates for your state's primary + general (dormant otherwise), drains stale calls from the ticker, and survives restarts. Filterable to your state. NYT baseline provider + optional California SoS county/city rollup.",
+      "author": "rpierce99",
+      "category": "info",
+      "tags": [
+        "elections",
+        "news",
+        "results",
+        "ticker",
+        "live"
+      ],
+      "repo": "https://github.com/ChuckBuilds/ledmatrix-plugins",
+      "branch": "main",
+      "plugin_path": "plugins/ledmatrix-elections",
+      "stars": 0,
+      "downloads": 0,
+      "last_updated": "2026-06-03",
+      "verified": false,
+      "screenshot": "",
+      "latest_version": "1.0.0"
+    },
+    {
       "id": "ledmatrix-dresden-departures",
       "name": "Dresden Departures Board",
       "description": "Dresden VVO departure board with tram times, date, clock, and weather. Shows upcoming tram/bus departures from a configurable DVB/VVO stop alongside a clock, date, and weather info.",
