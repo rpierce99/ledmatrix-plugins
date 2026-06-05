@@ -6,7 +6,12 @@ no called flag and serves votes/percent as strings, so this provider strips and
 derives those. The contest-list endpoints 403, so it carries a static list of
 office slugs rather than enumerating them.
 
-Endpoints (all verified 200 on June 2 primary night):
+This is an advanced, opt-in county/statewide rollup. The NYT baseline already
+carries CA's statewide, U.S. House, and state-legislature races with an accurate
+"% of expected vote" estimate (eevp), so by default this provider contributes
+nothing; it only fetches when its advanced knobs are set.
+
+Endpoints (all verified 200 against the June 2 primary returns):
 - statewide:   {base}/{office}                       -> dict
 - county:      {base}/{office}/county/{county-slug}  -> list[dict] (one entry)
 - all house:   {base}/us-rep/district/all            -> list[dict] (52)
@@ -78,8 +83,11 @@ class CaSosProvider(ElectionProvider):
         self.cache_manager = cache_manager
         self.timeout = request_timeout
         self.base_url = self.config.get("base_url", _DEFAULT_BASE_URL).rstrip("/")
-        self.offices = self.config.get("offices", ["governor"])
-        self.include_house = self.config.get("include_house", True)
+        # Advanced/opt-in: NYT already covers CA statewide, House, and state
+        # legislature with an accurate eevp estimate, so this provider fetches
+        # nothing unless its advanced knobs are set.
+        self.offices = self.config.get("offices", [])
+        self.include_house = self.config.get("include_house", False)
         self.advance_count = int(self.config.get("advance_count", 2))
         self.called_threshold = float(self.config.get("called_threshold", 99.0))
         self.county = self._resolve_county()
@@ -213,6 +221,7 @@ class CaSosProvider(ElectionProvider):
             title=entry.get("raceTitle") or office_label,
             source=self.name,
             last_updated=now,
+            reporting_basis="precincts",
         )
         return race
 

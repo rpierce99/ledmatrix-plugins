@@ -31,7 +31,6 @@ from datetime import date  # noqa: E402
 from data_model import Race  # noqa: E402
 from providers import create_providers  # noqa: E402
 from providers.nyt import NytStaticProvider  # noqa: E402
-from providers.ca_sos import CaSosProvider  # noqa: E402
 from store import RaceStore  # noqa: E402
 from election_calendar import ElectionEvent, resolve_active  # noqa: E402
 import renderer  # noqa: E402
@@ -52,6 +51,9 @@ class ElectionPlugin(BasePlugin):
         self.state = (config.get("state") or "").upper() or None
         self.only_my_state = config.get("only_my_state", True)
         self.race_types = config.get("race_types") or None
+        # Local legislative races to surface, by office -> your district number.
+        # The baseline carries every district; these pick out the user's own.
+        self.local_districts = self._build_local_districts(config)
         self.update_interval = int(config.get("update_interval", 60))
         self.display_duration = float(config.get("display_duration", 30))
         # Hide a race from the ticker this long after it was called, so the
@@ -155,7 +157,8 @@ class ElectionPlugin(BasePlugin):
                 self._enqueue_calls(newly, now)
 
             filtered = self.store.filter_races(
-                merged, self._fetch_state, self.only_my_state, self.race_types
+                merged, self._fetch_state, self.only_my_state, self.race_types,
+                self.local_districts,
             )
             visible = self.store.filter_visible(filtered, now, self.hide_called_after)
             self.races = self.store.sort_by_importance(visible)
@@ -256,18 +259,9 @@ class ElectionPlugin(BasePlugin):
         except Exception as e:
             self.logger.error("test_mode: NYT fixture load failed: %s", e)
 
-        ca_cfg = (self.config.get("providers", {}) or {}).get("ca_sos", {}) or {}
-        if self.config.get("local_races", True) and (self.state or "CA").upper() == "CA":
-            try:
-                ca = CaSosProvider(ca_cfg)
-                with open(os.path.join(_FIXTURE_DIR, "ca_sos_governor.json")) as f:
-                    gov = ca.parse_office(json.load(f), "Governor")
-                with open(os.path.join(_FIXTURE_DIR, "ca_sos_us_rep_all.json")) as f:
-                    house = ca.parse_house_all(json.load(f))
-                ca_races = ([gov] if gov else []) + house
-                results.append((ca, ca_races))
-            except Exception as e:
-                self.logger.error("test_mode: CA-SoS fixture load failed: %s", e)
+        # CA-SoS is advanced/opt-in and contributes nothing by default (NYT
+        # already carries CA's statewide, House, and legislature races with an
+        # accurate eevp estimate), so test_mode shows the NYT baseline only.
         return results
 
     def _first_called_race(self) -> Optional[Race]:
@@ -283,8 +277,23 @@ class ElectionPlugin(BasePlugin):
             self._pending_calls.append(race)
 
     def _passes_state_filter(self, race: Race) -> bool:
-        kept = self.store.filter_races([race], self._fetch_state, self.only_my_state, self.race_types)
+        kept = self.store.filter_races([race], self._fetch_state, self.only_my_state,
+                                       self.race_types, self.local_districts)
         return bool(kept)
+
+    @staticmethod
+    def _build_local_districts(config: dict) -> Dict[str, str]:
+        """Map local legislative offices to the user's configured district number."""
+        out: Dict[str, str] = {}
+        for key, office in (("assembly_district", "State Assembly"),
+                            ("senate_district", "State Senate")):
+            raw = config.get(key)
+            if raw is None:
+                continue
+            s = str(raw).strip()
+            if s.isdigit():
+                out[office] = s
+        return out
 
     def _build_scroll_image(self) -> None:
         # Pack races into columns that fill the panel height (one race on a 32px

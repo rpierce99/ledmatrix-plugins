@@ -255,9 +255,64 @@ def test_diff():
     check(again == [], "re-running same snapshot emits nothing (dedup)")
 
 
+# ---------------------------------------------------------------------------
+# 8. Local races (State Assembly / State Senate by district)
+# ---------------------------------------------------------------------------
+
+def test_ca_sos_defaults():
+    print("[CA-SoS advanced defaults]")
+    p = CaSosProvider({})
+    check(p.offices == [] and p.include_house is False,
+          "CA-SoS contributes nothing by default (NYT already covers CA races)")
+
+
+def test_local_races():
+    print("[Local races]")
+    nyt = NytStaticProvider({"election_date": "2026-06-02", "election_type": "primary"})
+    races = nyt.parse(load("nyt_ca_results.json"))
+
+    # The NYT feed already carries every CA legislative district with an honest
+    # eevp ("% of expected vote") estimate — not a precinct-based 100%.
+    asm1 = next((r for r in races if r.id == "state-assembly-ca-1"), None)
+    check(asm1 is not None, "NYT feed carries state assembly races")
+    check(asm1.reporting_basis == "vote", "NYT local race uses vote-share (eevp) reporting")
+    check(asm1.pct_reporting < 100.0,
+          f"local race reporting isn't a false 100% (got {asm1.pct_reporting})")
+
+    # Show only the user's configured district; the other ~99 are dropped, and
+    # the local races bypass race_types (here only 'governor' is listed).
+    districts = {"State Assembly": "1", "State Senate": "2"}
+    kept = RaceStore.filter_races(races, "CA", only_my_state=True,
+                                  race_types=["governor"], local_districts=districts)
+    local_ids = {r.id for r in kept if r.office in ("State Assembly", "State Senate")}
+    check(local_ids == {"state-assembly-ca-1", "state-senate-ca-2"},
+          f"only the configured local districts are kept (got {sorted(local_ids)})")
+
+    # With no district configured, no legislative races show (avoids flooding the
+    # ticker with all 80 + 40 of them).
+    none_kept = RaceStore.filter_races(races, "CA", only_my_state=True, race_types=["governor"])
+    check(not any(r.office in ("State Assembly", "State Senate") for r in none_kept),
+          "no local races without district config")
+
+
+def test_status_label():
+    print("[Reporting label]")
+    from renderer import _status_text
+    vote = _race("governor-ca", "Governor", "CA", Scope.STATEWIDE)
+    vote.pct_reporting = 57.0
+    check(_status_text(vote)[0] == "57% in", "vote-basis reporting shows '% in'")
+
+    prec = _race("state-assembly-ca-1", "State Assembly", "CA", Scope.DISTRICT)
+    prec.pct_reporting = 100.0
+    prec.reporting_basis = "precincts"
+    check(_status_text(prec)[0] == "100% prec",
+          "precinct-basis reporting shows '% prec', not a false '100% in'")
+
+
 def main():
     for fn in (test_nyt_parse, test_nyt_build_url, test_nyt_race_calls, test_ca_sos_parse,
-               test_filters, test_merge, test_sort, test_diff):
+               test_filters, test_merge, test_sort, test_diff,
+               test_ca_sos_defaults, test_local_races, test_status_label):
         fn()
     print(f"\n{_passed} passed, {_failed} failed")
     sys.exit(0 if _failed == 0 else 1)

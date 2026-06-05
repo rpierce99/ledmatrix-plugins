@@ -14,7 +14,7 @@ import time
 from dataclasses import replace
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from data_model import Race, Scope, office_rank, race_type_token
+from data_model import Race, Scope, is_local_office, office_rank, race_type_token
 
 logger = logging.getLogger(__name__)
 
@@ -127,16 +127,31 @@ class RaceStore:
     @staticmethod
     def filter_races(races: List[Race], my_state: Optional[str],
                      only_my_state: bool,
-                     race_types: Optional[Sequence[str]] = None) -> List[Race]:
-        """Apply the geographic + race-type filters."""
+                     race_types: Optional[Sequence[str]] = None,
+                     local_districts: Optional[Dict[str, str]] = None) -> List[Race]:
+        """Apply the geographic + race-type filters.
+
+        ``local_districts`` maps a local legislative office (e.g. "State
+        Assembly") to the user's district number. Those races are shown only for
+        the configured district — the baseline carries all 80/40 of them, but the
+        user only wants their own — and aren't subject to ``race_types``. With no
+        district configured for an office, none of that office's races show.
+        """
         state = my_state.upper() if my_state else None
         types = set(race_types) if race_types else None
+        districts = local_districts or {}
 
         out: List[Race] = []
         for race in races:
             if only_my_state and state:
                 if race.scope != Scope.NATIONAL and (race.state or "").upper() != state:
                     continue
+            if is_local_office(race.office):
+                want = districts.get(race.office)
+                if not want or str(race.district) != str(want):
+                    continue
+                out.append(race)
+                continue
             if types is not None and race_type_token(race.office) not in types:
                 continue
             out.append(race)

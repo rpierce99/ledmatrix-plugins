@@ -28,8 +28,19 @@ OFFICE_RANK = {
     "Governor": 2,
     "Ballot Measure": 3,
     "U.S. House": 4,
+    "State Senate": 5,
+    "State Assembly": 6,
 }
 _DEFAULT_OFFICE_RANK = 99
+
+# Local legislative offices a state source (e.g. CA-SoS) contributes that the
+# national baseline never carries. They're opt-in via explicit district config,
+# so they bypass the race_types filter (configuring a district == wanting it).
+LOCAL_OFFICES = {"State Senate", "State Assembly"}
+
+
+def is_local_office(office: str) -> bool:
+    return office in LOCAL_OFFICES
 
 
 def office_rank(office: str) -> int:
@@ -60,6 +71,9 @@ class Race:
     source: str = ""              # provider name that produced/won the merge
     last_updated: float = 0.0
     called_at: Optional[float] = None  # unix ts when WE first observed called=True
+    reporting_basis: str = "vote"  # "vote" = share of expected vote in (NYT eevp);
+    #                                "precincts" = share of precincts reporting (CA-SoS),
+    #                                which hits 100% while mail ballots are still counted
 
     def is_key_race(self) -> bool:
         """Whether a provider flagged this as a curated 'key' race (NYT key_races)."""
@@ -98,6 +112,8 @@ _RACE_TYPE_OF_OFFICE = {
     "Governor": "governor",
     "U.S. House": "house",
     "Ballot Measure": "ballot",
+    "State Senate": "state-senate",
+    "State Assembly": "state-assembly",
 }
 
 

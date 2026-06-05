@@ -100,7 +100,12 @@ def _text_width(draw: ImageDraw.ImageDraw, text: str, fnt) -> int:
 def _status_text(race: Race) -> Tuple[str, Tuple[int, int, int]]:
     if race.called:
         return "CALLED", _CALLED_GREEN
-    return f"{int(round(race.pct_reporting))}% in", _DIM
+    # "prec" for precinct-based sources (local races) so a 100% there isn't read
+    # as 100% of the vote counted; "in" for the vote-share estimate (NYT eevp).
+    pct = int(round(race.pct_reporting))
+    if getattr(race, "reporting_basis", "vote") == "precincts":
+        return f"{pct}% prec", _DIM
+    return f"{pct}% in", _DIM
 
 
 # Ticker layout constants. The ticker scrolls horizontally; on taller panels we

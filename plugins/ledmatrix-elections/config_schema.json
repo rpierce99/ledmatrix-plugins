@@ -122,6 +122,18 @@
       "description": "Where your state has an authoritative results source, use it for granular/local results on top of the national baseline. Auto-engages by state (currently California); no effect for states not yet supported.",
       "default": true
     },
+    "assembly_district": {
+      "type": "string",
+      "title": "State Assembly/House District",
+      "description": "Your lower-chamber legislative district number. Set this to show that local race in the ticker (the feed carries every district; this picks out yours). Empty = off. CA: find yours at findyourrep.legislature.ca.gov.",
+      "default": ""
+    },
+    "senate_district": {
+      "type": "string",
+      "title": "State Senate District",
+      "description": "Your state senate district number. Set this to show that local race in the ticker. Empty = off.",
+      "default": ""
+    },
     "race_types": {
       "type": "array",
       "title": "Race Types",
@@ -215,8 +227,8 @@
         },
         "ca_sos": {
           "type": "object",
-          "title": "California local results (advanced options)",
-          "description": "Auto-engaged for California when 'Show Local Races' is on. These knobs only fine-tune the CA Secretary of State rollup.",
+          "title": "California SoS rollup (advanced)",
+          "description": "Optional, off by default. The national feed already covers CA's statewide, U.S. House, and state-legislature races with an accurate reporting estimate, so these knobs are only for a county/statewide California Secretary of State rollup.",
           "properties": {
             "base_url": {
               "type": "string",
@@ -226,28 +238,30 @@
             "county": {
               "type": "string",
               "title": "County Slug",
-              "description": "Optional county slug (e.g. los-angeles) for a county-level rollup. Empty = statewide totals.",
+              "description": "County slug (e.g. los-angeles) for a county-level rollup of the offices below. Empty = statewide totals.",
               "default": ""
             },
             "city": {
               "type": "string",
               "title": "City",
-              "description": "Optional convenience: a major CA city, mapped to its county for the rollup. Ignored if County is set.",
+              "description": "Convenience: a major CA city, mapped to its county for the rollup. Ignored if County is set.",
               "default": ""
+            },
+            "offices": {
+              "type": "array",
+              "title": "Statewide Offices",
+              "description": "Statewide office slugs to fetch from the SoS (e.g. governor, attorney-general). Empty = none.",
+              "items": { "type": "string" },
+              "default": []
             },
             "include_house": {
               "type": "boolean",
-              "description": "Also fetch all CA U.S. House district results from the SoS.",
-              "default": true
-            },
-            "override_nyt_votes": {
-              "type": "boolean",
-              "description": "Use the SoS authoritative vote totals for CA races (NYT still drives calls and importance).",
-              "default": true
+              "description": "Also fetch CA U.S. House results from the SoS. Off by default — the national feed already covers House with a more accurate reporting estimate.",
+              "default": false
             },
             "called_threshold": {
               "type": "number",
-              "description": "Reporting % at which a CA-SoS race is treated as called (SoS has no winner flag).",
+              "description": "Reporting % at which an SoS office is treated as called (SoS has no winner flag).",
               "minimum": 0,
               "maximum": 100,
               "default": 99.0
@@ -257,8 +271,8 @@
             "base_url": "https://api.sos.ca.gov/returns",
             "county": "",
             "city": "",
-            "include_house": true,
-            "override_nyt_votes": true,
+            "offices": [],
+            "include_house": false,
             "called_threshold": 99.0
           }
         }
