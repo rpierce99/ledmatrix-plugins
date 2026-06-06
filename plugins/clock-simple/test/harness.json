@@ -6,5 +6,6 @@
     "show_seconds": false,
     "show_date": true
   },
+  "mock_data": {},
   "freeze_time": "2025-08-01 15:25:00"
 }

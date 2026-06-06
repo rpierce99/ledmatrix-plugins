@@ -1,8 +1,8 @@
 name: Plugin Safety
 
-# Renders every changed plugin across all supported matrix sizes and screens
-# using the LEDMatrix core harness, and validates manifests. Gates PRs that
-# touch plugin code so a change can't silently break a size or screen.
+# Renders every changed plugin across a representative spread of matrix sizes and
+# screens using the LEDMatrix core harness, and validates manifests. Gates PRs
+# that touch plugin code so a change can't silently break a size or screen.
 
 on:
   pull_request:
@@ -53,13 +53,15 @@ jobs:
       - name: Determine changed plugins (non-test code only)
         id: changed
         working-directory: plugins-repo
+        env:
+          ALL_INPUT: ${{ github.event.inputs.all }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          if [ "${{ github.event.inputs.all }}" = "true" ]; then
+          if [ "$ALL_INPUT" = "true" ]; then
             ids=$(ls plugins)
           else
-            base="${{ github.event.pull_request.base.sha }}"
             # Plugins with a changed file outside their test/ dir.
-            ids=$(git diff --name-only "$base"...HEAD -- 'plugins/*' \
+            ids=$(git diff --name-only "$BASE_SHA"...HEAD -- 'plugins/*' \
               | grep -vE '^plugins/[^/]+/test/' \
               | sed -E 's#^plugins/([^/]+)/.*#\1#' | sort -u)
           fi
@@ -71,12 +73,20 @@ jobs:
       - name: Enforce version bump on changed plugins
         if: steps.changed.outputs.ids != '' && github.event.inputs.all != 'true'
         working-directory: plugins-repo
+        env:
+          # Read IDs from env (never interpolate ${{ }} into the script body) and
+          # validate each one — plugin ids flow into python -c strings below, so a
+          # crafted directory name on a PR branch could otherwise inject code.
+          IDS: ${{ steps.changed.outputs.ids }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          base="${{ github.event.pull_request.base.sha }}"
           fail=0
-          for pid in ${{ steps.changed.outputs.ids }}; do
+          for pid in $IDS; do
+            case "$pid" in
+              '' | *[!a-z0-9._-]*) echo "::error::invalid plugin id '$pid'"; fail=1; continue ;;
+            esac
             cur=$(python -c "import json;print(json.load(open('plugins/$pid/manifest.json'))['version'])")
-            old=$(git show "$base:plugins/$pid/manifest.json" 2>/dev/null \
+            old=$(git show "$BASE_SHA:plugins/$pid/manifest.json" 2>/dev/null \
               | python -c "import json,sys;print(json.load(sys.stdin)['version'])" 2>/dev/null || echo "")
             if [ -n "$old" ] && [ "$cur" = "$old" ]; then
               echo "::error::$pid code changed but version not bumped (still $cur). Users won't get the update."
@@ -89,15 +99,20 @@ jobs:
 
       - name: Validate manifests against schema
         if: steps.changed.outputs.ids != ''
+        env:
+          IDS: ${{ steps.changed.outputs.ids }}
         run: |
           python - <<'PY'
-          import json, sys
+          import json, os, re, sys
           from pathlib import Path
           import jsonschema
           schema = json.load(open("core/schema/manifest_schema.json"))
-          ids = """${{ steps.changed.outputs.ids }}""".split()
+          valid = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
+          ids = os.environ.get("IDS", "").split()
           failed = False
           for pid in ids:
+              if not valid.match(pid):
+                  print(f"[FAIL] invalid plugin id: {pid!r}"); failed = True; continue
               mpath = Path("plugins-repo/plugins") / pid / "manifest.json"
               if not mpath.exists():
                   print(f"[skip] {pid}: no manifest (deleted?)"); continue
@@ -111,16 +126,21 @@ jobs:
 
       - name: Run safety harness on changed plugins
         if: steps.changed.outputs.ids != ''
+        env:
+          IDS: ${{ steps.changed.outputs.ids }}
         run: |
           set -e
-          ids="${{ steps.changed.outputs.ids }}"
           fail=0
-          for pid in $ids; do
+          for pid in $IDS; do
+            case "$pid" in
+              '' | *[!a-z0-9._-]*) echo "::error::invalid plugin id '$pid'"; fail=1; continue ;;
+            esac
             pdir="plugins-repo/plugins/$pid"
             [ -d "$pdir" ] || { echo "::notice::$pid removed, skipping"; continue; }
             echo "::group::$pid"
             # Install the plugin's own runtime deps so it loads like a real install.
-            if [ -f "$pdir/requirements.txt" ]; then pip install -r "$pdir/requirements.txt" || true; fi
+            # A failure here is a real problem (the plugin can't load), so let it fail.
+            if [ -f "$pdir/requirements.txt" ]; then pip install -r "$pdir/requirements.txt"; fi
             python core/scripts/check_plugin.py --plugin "$pid" \
               --plugin-dir "$PWD/plugins-repo/plugins" || fail=1
             echo "::endgroup::"

@@ -68,7 +68,7 @@ Eyeball the PNGs in `/tmp/preview`, then fix any FAIL (overflow/crash) before pu
 
 **Golden images (optional, per plugin):** commit reference PNGs so visual drift is
 caught automatically:
-```
+```text
 plugins/<id>/test/harness.json           # deterministic config / mock data / frozen time
 plugins/<id>/test/golden/<WxH>/<mode>.png
 ```
