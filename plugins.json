@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "last_updated": "2026-06-06",
+  "last_updated": "2026-06-07",
   "plugins": [
     {
       "id": "7-segment-clock",
@@ -334,7 +334,7 @@
       "last_updated": "2026-06-01",
       "verified": true,
       "screenshot": "",
-      "latest_version": "1.8.2"
+      "latest_version": "1.9.0"
     },
     {
       "id": "march-madness",
