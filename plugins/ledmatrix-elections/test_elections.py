@@ -358,9 +358,56 @@ def test_status_label():
           "precinct-basis reporting shows '% prec', not a false '100% in'")
 
 
+def _raw_mayor(nyt_id, called):
+    """Minimal NYT-raw 'Mayor' race (no seat_number) — collides on office+state."""
+    return {
+        "office": "Mayor",
+        "nyt_id": nyt_id,
+        "type": "primary",
+        "top_reporting_unit": {
+            "state_postal": "CA",
+            "total_votes": 100,
+            "eevp": 100,
+            "candidates": [
+                {"nyt_id": "c1", "votes": {"total": 60}},
+                {"nyt_id": "c2", "votes": {"total": 40}},
+            ],
+        },
+        "outcome": {"won": ["c1"]} if called else {},
+    }
+
+
+def test_stable_race_id_across_reorder():
+    print("[Stable race id across feed reorder]")
+    p = NytStaticProvider({"election_date": "2026-06-02", "election_type": "primary"})
+    called_mayor = _raw_mayor("mayor-aaa", called=True)
+    other_mayor = _raw_mayor("mayor-bbb", called=False)
+
+    # Same two physical races, but NYT serves them in a different order on the
+    # next pull (it reorders by reporting/votes).
+    races1 = p.parse({"races": [called_mayor, other_mayor]})
+    races2 = p.parse({"races": [other_mayor, called_mayor]})
+
+    id_by_nyt1 = {r.nyt_id: r.id for r in races1}
+    id_by_nyt2 = {r.nyt_id: r.id for r in races2}
+    check(len(set(id_by_nyt1.values())) == 2, "colliding mayors get distinct ids")
+    check(id_by_nyt1 == id_by_nyt2,
+          f"each physical race keeps a stable id across reorder ({id_by_nyt1} vs {id_by_nyt2})")
+
+    # End-to-end: the called mayor must fire as 'newly called' exactly once, not
+    # re-fire on every reordered pull (the interrupt-loop bug).
+    store = RaceStore()
+    store.set_election("CA_2026-06-02_primary")
+    check(store.diff_newly_called(races1, now=1000.0) == [],
+          "cold start seeds snapshot, no replay")
+    check(store.diff_newly_called(races2, now=1100.0) == [],
+          "reordered pull does not re-fire the already-called race")
+
+
 def main():
     for fn in (test_nyt_parse, test_nyt_build_url, test_nyt_race_calls, test_ca_sos_parse,
                test_filters, test_merge, test_sort, test_diff,
+               test_stable_race_id_across_reorder,
                test_ca_sos_defaults, test_chamber_classification, test_local_races,
                test_local_races_other_state, test_district_aliases, test_status_label):
         fn()

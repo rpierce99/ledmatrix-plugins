@@ -24,6 +24,7 @@ from data_model import (
     make_race_id,
     normalize_party,
     scope_for_office,
+    slug,
 )
 from providers import ElectionProvider
 
@@ -150,19 +151,32 @@ class NytStaticProvider(ElectionProvider):
         )
         now = time.time()
 
+        # Disambiguate genuine duplicates (e.g. multiple local "Mayor" races with
+        # the same office+state+no-district) with a STABLE, content-derived suffix
+        # so the same physical race keeps its id across fetches. NYT reorders
+        # results between pulls; an order-derived counter would reshuffle the
+        # suffixes, so diff_newly_called would see "new" ids every cycle and
+        # re-fire the called-race interrupt forever.
+        parsed = [
+            (r, race)
+            for r, race in ((r, self._parse_race(r, now)) for r in races_raw)
+            if race is not None
+        ]
+        id_counts: Dict[str, int] = {}
+        for _, race in parsed:
+            id_counts[race.id] = id_counts.get(race.id, 0) + 1
+
         races: List[Race] = []
-        seen_ids: Dict[str, int] = {}
-        for r in races_raw:
-            race = self._parse_race(r, now)
-            if race is None:
-                continue
-            # Disambiguate genuine duplicates (e.g. multiple local "Mayor" races
-            # with the same office+state+no-district) so none are lost in the merge.
-            if race.id in seen_ids:
-                seen_ids[race.id] += 1
-                race.id = f"{race.id}-{seen_ids[race.id]}"
-            else:
-                seen_ids[race.id] = 0
+        fallback_seen: Dict[str, int] = {}
+        for r, race in parsed:
+            if id_counts[race.id] > 1:
+                # Collision: suffix every member with NYT's stable per-race id.
+                nyt_id = r.get("nyt_id")
+                if nyt_id:
+                    race.id = f"{race.id}-{slug(str(nyt_id))}"
+                else:
+                    fallback_seen[race.id] = fallback_seen.get(race.id, 0) + 1
+                    race.id = f"{race.id}-{fallback_seen[race.id]}"
             if r.get("nyt_id") in key_race_ids:
                 race._key_race = True  # type: ignore[attr-defined]
             races.append(race)
