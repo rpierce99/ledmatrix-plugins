@@ -1126,7 +1126,18 @@ class HockeyScoreboardPlugin(BasePlugin if BasePlugin else object):
                         f"Mode {mode_type_str} is disabled for league {league}, skipping {display_mode}"
                     )
                     return False
-                
+
+                # A live mode with no live game must skip so the rotation moves on,
+                # rather than holding the slot with an empty frame. Other modes
+                # (recent/upcoming) always have content to show.
+                if mode_type_str == 'live':
+                    live_manager = self._get_league_manager_for_mode(league, 'live')
+                    if not self._has_live_games_for_manager(live_manager):
+                        self.logger.debug(
+                            f"No live games for league {league}, skipping {display_mode}"
+                        )
+                        return False
+
                 # Display this specific league/mode combination
                 return self._display_league_mode(league, mode_type_str, force_clear)
             else:
