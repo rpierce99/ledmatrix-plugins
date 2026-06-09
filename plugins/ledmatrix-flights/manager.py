@@ -893,8 +893,10 @@ class FlightTrackerPlugin(BasePlugin):
         from the full receiver range rather than just the map radius subset.
         """
         # Fetch a wider area for stats (3× map radius, capped at 100 miles so we
-        # don't hammer the public API with enormous bounding boxes).
-        stats_radius = min(self.map_radius_miles * 3, 100)
+        # don't hammer the public API with enormous bounding boxes). Never fetch
+        # less than the proximity/overhead radius, otherwise a proximity_distance_miles
+        # larger than 3× the map radius would silently never see its aircraft.
+        stats_radius = min(max(self.map_radius_miles * 3, self.proximity_distance_miles), 100)
         result = self._fetcher.fetch(
             self.center_lat,
             self.center_lon,
@@ -2290,10 +2292,12 @@ class FlightTrackerPlugin(BasePlugin):
                 has_airborne_tracked = any(
                     tf.status == "AIRBORNE" for tf in self.tracked_flight_data.values()
                 )
-                closest = self.get_closest_aircraft()
+                _, prox_ac = (
+                    self._closest_in_radius() if self.proximity_enabled else (None, None)
+                )
                 if has_airborne_tracked:
                     mode = 'flight_tracking'
-                elif self.proximity_enabled and closest and closest['distance_miles'] <= self.proximity_distance_miles:
+                elif prox_ac is not None:
                     mode = 'overhead'
                 elif self.anchor_airport and self._get_anchor_aircraft():
                     mode = 'area'
@@ -2314,8 +2318,18 @@ class FlightTrackerPlugin(BasePlugin):
                 return [img]
 
             if mode == 'overhead':
-                self._display_overhead(force_clear=False)
-                captured = self.display_manager.image
+                # Render the proximity aircraft from the full pool (independent of
+                # map_radius_miles); falls back to the closest mapped aircraft when
+                # proximity is disabled or nothing is in the proximity radius.
+                _, overhead_ac = (
+                    self._closest_in_radius() if self.proximity_enabled else (None, None)
+                )
+                self._active_overhead_aircraft = overhead_ac
+                try:
+                    self._display_overhead(force_clear=False)
+                    captured = self.display_manager.image
+                finally:
+                    self._active_overhead_aircraft = None
                 if captured is not None:
                     return [captured.copy()]
                 return None
@@ -2392,7 +2406,6 @@ class FlightTrackerPlugin(BasePlugin):
             self.last_fr24_enrichment = 0.0
 
         aircraft_count = len(self.aircraft_data)
-        closest = self.get_closest_aircraft()
 
         # Resolve which internal view to render from the framework's slot name.
         # Granular slots (flight_tracker_map/_stats/_area/_flight_tracking/_live)
@@ -2429,10 +2442,16 @@ class FlightTrackerPlugin(BasePlugin):
                 has_airborne_tracked = any(
                     tf.status == "AIRBORNE" for tf in self.tracked_flight_data.values()
                 )
+                _, prox_ac = (
+                    self._closest_in_radius() if self.proximity_enabled else (None, None)
+                )
                 if has_airborne_tracked:
                     mode = 'flight_tracking'
-                elif self.proximity_enabled and closest and closest['distance_miles'] <= self.proximity_distance_miles:
+                elif prox_ac is not None:
                     mode = 'overhead'
+                    # Render the proximity aircraft itself (from the full pool), not
+                    # whatever the map-radius-limited get_closest_aircraft() returns.
+                    self._active_overhead_aircraft = prox_ac
                 else:
                     # Rotate through available modes
                     auto_modes = []
@@ -2844,10 +2863,17 @@ class FlightTrackerPlugin(BasePlugin):
 
     def _closest_in_radius(self):
         """Return (icao, aircraft) for the closest aircraft within the alert radius,
-        or (None, None) if nothing is within ``proximity_distance_miles``."""
-        if not self.aircraft_data:
+        or (None, None) if nothing is within ``proximity_distance_miles``.
+
+        Scans ``all_aircraft_data`` (the full fetched pool) rather than
+        ``aircraft_data`` (the map_radius_miles subset) so the overhead/live-priority
+        trigger is governed solely by ``proximity_distance_miles`` and is independent
+        of the map view's ``map_radius_miles``. Otherwise a small map radius would
+        silently cap the overhead radius at ``min(map_radius_miles, proximity_distance_miles)``."""
+        pool = self.all_aircraft_data or self.aircraft_data
+        if not pool:
             return None, None
-        icao, ac = min(self.aircraft_data.items(), key=lambda kv: kv[1]['distance_miles'])
+        icao, ac = min(pool.items(), key=lambda kv: kv[1]['distance_miles'])
         if ac['distance_miles'] <= self.proximity_distance_miles:
             return icao, ac
         return None, None
@@ -2871,8 +2897,9 @@ class FlightTrackerPlugin(BasePlugin):
         now = time.time()
 
         if self._lock_icao is not None:
-            # Keep the locked flight's data fresh while it is still tracked.
-            ac = self.aircraft_data.get(self._lock_icao)
+            # Keep the locked flight's data fresh while it is still tracked. Read
+            # from the full pool so a flight outside map_radius_miles still refreshes.
+            ac = self.all_aircraft_data.get(self._lock_icao) or self.aircraft_data.get(self._lock_icao)
             if ac is not None:
                 self._lock_aircraft = ac
             # Hold for the full window even if the plane has left the radius, so a

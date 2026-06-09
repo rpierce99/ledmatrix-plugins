@@ -1,7 +1,7 @@
 {
   "id": "ledmatrix-flights",
   "name": "Flight Tracker",
-  "version": "1.9.0",
+  "version": "1.9.1",
   "description": "Real-time aircraft tracking with ADS-B/FlightRadar24/OpenSky/adsb.fi/adsb.lol data, map backgrounds, area mode, flight tracking, anchor airport, and flight records",
   "author": "ChuckBuilds",
   "entry_point": "manager.py",
@@ -34,6 +34,11 @@
   "min_ledmatrix_version": "2.0.0",
   "max_ledmatrix_version": "3.0.0",
   "versions": [
+    {
+      "released": "2026-06-08",
+      "version": "1.9.1",
+      "notes": "Fix: the overhead / live-priority view is now governed solely by proximity_distance_miles, independent of map_radius_miles. Previously a small map_radius_miles silently capped the overhead trigger radius (the candidate pool was filtered to the map radius before the proximity check), so aircraft inside proximity_distance_miles but outside the map view never triggered the live overhead card. The fetch radius now also covers proximity_distance_miles."
+    },
     {
       "released": "2026-06-05",
       "version": "1.9.0",
@@ -116,5 +121,5 @@
       "ledmatrix_min_version": "2.0.0"
     }
   ],
-  "last_updated": "2026-06-01"
+  "last_updated": "2026-06-08"
 }
