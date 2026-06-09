@@ -37,7 +37,8 @@
     {
       "released": "2026-06-08",
       "version": "1.9.1",
-      "notes": "Fix: the overhead / live-priority view is now governed solely by proximity_distance_miles, independent of map_radius_miles. Previously a small map_radius_miles silently capped the overhead trigger radius (the candidate pool was filtered to the map radius before the proximity check), so aircraft inside proximity_distance_miles but outside the map view never triggered the live overhead card. The fetch radius now also covers proximity_distance_miles."
+      "notes": "Fix: the overhead / live-priority view is now governed solely by proximity_distance_miles, independent of map_radius_miles. Previously a small map_radius_miles silently capped the overhead trigger radius (the candidate pool was filtered to the map radius before the proximity check), so aircraft inside proximity_distance_miles but outside the map view never triggered the live overhead card. The fetch radius now also covers proximity_distance_miles.",
+      "ledmatrix_min": "2.0.0"
     },
     {
       "released": "2026-06-05",
