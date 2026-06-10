@@ -470,6 +470,11 @@ class SportsCore(ABC):
         self, draw, text, position, font, fill=(255, 255, 255), outline_color=(0, 0, 0)
     ):
         """Draw text with a black outline for better readability."""
+        # Disable anti-aliasing: the scoreboard uses pixel/bitmap fonts (e.g.
+        # PressStart2P) which FreeType anti-aliases into dim partial-lit pixels
+        # on a 1:1 LED matrix, muddying glyphs (a "6" can read as "G"). Drawing
+        # in 1-bit mode keeps strokes crisp and legible.
+        draw.fontmode = "1"
         x, y = position
         for dx, dy in [
             (-1, -1),
