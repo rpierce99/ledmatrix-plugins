@@ -1,7 +1,7 @@
 {
   "id": "ledmatrix-weather",
   "name": "Weather Display",
-  "version": "2.3.2",
+  "version": "2.4.0",
   "author": "ChuckBuilds",
   "class_name": "WeatherPlugin",
   "description": "Comprehensive weather display with current conditions, hourly forecast, daily forecast, almanac (sunrise/sunset, moon phase), precipitation radar, weather alerts, UV index, wind direction, and weather icons. Powered by Open-Meteo (free, no API key) + RainViewer.",
@@ -25,6 +25,12 @@
     "radar"
   ],
   "versions": [
+    {
+      "released": "2026-06-09",
+      "version": "2.4.0",
+      "note": "Redesign the almanac (moon) page for readability: replace cryptic 'MR/MS' with a 'Sun 6:42am - 8:51pm' / 'Moon 9:14pm - 7:33am' grid (label | rise | set columns aligned so the two rows line up), spell out am/pm where the panel is wide enough (compact 'a'/'p' where it isn't), cap the moon icon so tall panels no longer truncate the phase name, and add a stacked sun-only fallback so 64-wide panels stay legible.",
+      "ledmatrix_min": "2.0.0"
+    },
     {
       "released": "2026-06-04",
       "version": "2.3.2",

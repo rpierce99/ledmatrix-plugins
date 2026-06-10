@@ -1205,17 +1205,87 @@ class WeatherPlugin(BasePlugin):
         else:
             return "moon-new"
 
-    def _format_unix_time(self, ts, offset=0):
-        """Format a unix timestamp to local time string like '6:42a'."""
+    def _format_unix_time(self, ts, offset=0, ampm_full=False):
+        """Format a unix timestamp to a local time string.
+
+        `ampm_full=False` gives the compact '6:42a' used on narrow panels;
+        `ampm_full=True` gives the clearer '6:42am' used where the column is
+        wide enough to spell it out.
+        """
         if not ts:
             return "---"
         from datetime import datetime, timezone, timedelta
         dt = datetime.fromtimestamp(ts, tz=timezone(timedelta(seconds=offset)))
         h = dt.hour
         m = dt.minute
-        ampm = "a" if h < 12 else "p"
+        if ampm_full:
+            suffix = "am" if h < 12 else "pm"
+        else:
+            suffix = "a" if h < 12 else "p"
         h12 = h % 12 or 12
-        return f"{h12}:{m:02d}{ampm}"
+        return f"{h12}:{m:02d}{suffix}"
+
+    ALMANAC_COL_GAP = 3  # px between the label / rise / dash / set columns
+
+    def _almanac_columns(self, draw, font, ampm_full, tz_offset,
+                         sunrise_ts, sunset_ts, moonrise_ts, moonset_ts):
+        """Geometry for the rise/set grid: a label column (Sun/Moon), two equal
+        time columns (rise, set) sized to the widest formatted time, and a fixed
+        '-' separator between them so both rows line up like a table. Offsets are
+        relative to the text column's left edge (the caller adds `text_x`).
+        Returns `label_w`, `time_w`, `gap`, `dash_w`, the `rise_right` and
+        `set_right` column right edges, the `dash_left` x, and `total` width."""
+        label_w = max(draw.textlength("Sun", font=font),
+                      draw.textlength("Moon", font=font))
+        times = (sunrise_ts, sunset_ts, moonrise_ts, moonset_ts)
+        time_w = max(
+            draw.textlength(self._format_unix_time(ts, tz_offset, ampm_full), font=font)
+            for ts in times)
+        dash_w = draw.textlength("-", font=font)
+        gap = self.ALMANAC_COL_GAP
+        rise_right = label_w + gap + time_w
+        dash_left = rise_right + gap
+        set_right = dash_left + dash_w + gap + time_w
+        return {"label_w": label_w, "time_w": time_w, "gap": gap, "dash_w": dash_w,
+                "rise_right": rise_right, "dash_left": dash_left,
+                "set_right": set_right, "total": set_right}
+
+    def _almanac_time_mode(self, draw, col_w, tz_offset,
+                           sunrise_ts, sunset_ts, moonrise_ts, moonset_ts):
+        """Choose how to render the rise/set times for the available text column.
+
+        Preferred is a column grid — label | rise | '-' | set — that lines the
+        two bodies up like a little table ('Sun 6:42am - 8:51pm' over 'Moon
+        9:14pm - 7:33am'). Returns ('range', True) when the grid fits with full
+        am/pm, ('range', False) when it only fits with the compact 'a'/'p', and
+        ('stacked', False) when the column is too narrow for the grid at all
+        (e.g. 64-wide, where the moon icon leaves ~30px) — there we fall back to
+        stacked sun-only times with up/down markers.
+        """
+        font = self.display_manager.extra_small_font
+
+        def fits(full):
+            cols = self._almanac_columns(
+                draw, font, full, tz_offset,
+                sunrise_ts, sunset_ts, moonrise_ts, moonset_ts)
+            # -2 keeps the right-most time off the panel's last column.
+            return cols["total"] <= col_w - 2
+
+        if fits(True):
+            return "range", True
+        if fits(False):
+            return "range", False
+        return "stacked", False
+
+    def _draw_rise_set_marker(self, draw, x, y, rising, color, size=4):
+        """Small up (rise) / down (set) triangle, `size` px tall, top-left at
+        (x, y). Used on narrow panels where a spelled-out label won't fit."""
+        if rising:
+            draw.polygon([(x, y + size - 1), (x + size - 1, y + size - 1),
+                          (x + (size - 1) / 2, y)], fill=color)
+        else:
+            draw.polygon([(x, y), (x + size - 1, y),
+                          (x + (size - 1) / 2, y + size - 1)], fill=color)
 
     def _truncate_to_width(self, draw, text, font, max_w):
         """Trim trailing characters until `text` fits within `max_w` pixels."""
@@ -1293,10 +1363,10 @@ class WeatherPlugin(BasePlugin):
             moonset_ts = moon.get('moonset')
             moon_phase = moon.get('phase')
 
+            # Compact strings for the narrow stacked fallback; the range layout
+            # formats from the timestamps directly (it picks full vs short am/pm).
             sunrise = self._format_unix_time(sunrise_ts, tz_offset)
             sunset = self._format_unix_time(sunset_ts, tz_offset)
-            moonrise = self._format_unix_time(moonrise_ts, tz_offset)
-            moonset = self._format_unix_time(moonset_ts, tz_offset)
             phase_name = self._get_moon_phase_name(moon_phase)
 
             # Day length
@@ -1307,9 +1377,11 @@ class WeatherPlugin(BasePlugin):
                 dm = int((diff % 3600) // 60)
                 day_len = f"{dh}h{dm}m"
 
-            # Moon phase icon (left side) — use most of the height
+            # Moon phase icon (left side). Cap the size so a tall panel (128x64)
+            # doesn't blow the icon up to ~58px, starving the text column — that
+            # truncated the phase name and wasted the bottom half of the panel.
             moon_icon_code = self._get_moon_icon_code(moon_phase)
-            icon_size = height - 6
+            icon_size = min(height - 6, 32)
 
             try:
                 moon_icon = WeatherIcons.load_weather_icon(moon_icon_code, icon_size)
@@ -1319,8 +1391,10 @@ class WeatherPlugin(BasePlugin):
             except Exception:
                 pass
 
-            # Text area starts after the icon
-            text_x = icon_size + 8
+            # Text area starts after the icon. Narrow panels use a tighter gap so
+            # the rise/set rows get every pixel of width they can.
+            gap = 4 if width < 100 else 8
+            text_x = icon_size + gap
             col_w = width - text_x
 
             # Size fonts and rows to the actual panel so nothing overflows the
@@ -1330,14 +1404,9 @@ class WeatherPlugin(BasePlugin):
             rows = layout["rows"]
             pct_font = layout["pct_font"]
 
-            def draw_pair(y, left, left_fill, right, right_fill):
-                """Left-aligned + right-aligned text on one row, each clamped to
-                the text column so neither bleeds off-panel."""
-                draw.text((text_x, y), self._truncate_to_width(draw, left, font_sm, col_w),
-                          font=font_sm, fill=left_fill)
-                right = self._truncate_to_width(draw, right, font_sm, col_w)
-                rx = max(text_x, width - draw.textlength(right, font=font_sm) - 2)
-                draw.text((rx, y), right, font=font_sm, fill=right_fill)
+            time_mode, ampm_full = self._almanac_time_mode(
+                draw, col_w, tz_offset,
+                sunrise_ts, sunset_ts, moonrise_ts, moonset_ts)
 
             # Row 1: Phase name (+ illumination %)
             if rows[0] is not None:
@@ -1349,20 +1418,53 @@ class WeatherPlugin(BasePlugin):
                     draw.text((width - pct_w - 2, rows[0]), pct,
                               font=pct_font, fill=(140, 140, 180))
 
-            # Row 2: Sunrise / Sunset
-            if rows[1] is not None:
-                draw_pair(rows[1], f"Rise {sunrise}", (255, 200, 0),
-                          f"Set {sunset}", (255, 120, 50))
+            if time_mode == "range":
+                # Rows 2-3: a label | rise | '-' | set grid so the two bodies line
+                # up like a table — rise times stack over rise times, set over set,
+                # with the hyphen in a fixed separator column between them.
+                cols = self._almanac_columns(
+                    draw, font_sm, ampm_full, tz_offset,
+                    sunrise_ts, sunset_ts, moonrise_ts, moonset_ts)
+                rise_right = text_x + cols["rise_right"]
+                dash_left = text_x + cols["dash_left"]
+                set_right = text_x + cols["set_right"]
 
-            # Row 3: Moonrise / Moonset
-            if rows[2] is not None:
-                draw_pair(rows[2], f"MR {moonrise}", (180, 180, 220),
-                          f"MS {moonset}", (140, 140, 180))
+                def draw_grid_row(y, label, rise_ts, set_ts, fill):
+                    draw.text((text_x, y), label, font=font_sm, fill=fill)
+                    rise_s = self._format_unix_time(rise_ts, tz_offset, ampm_full)
+                    set_s = self._format_unix_time(set_ts, tz_offset, ampm_full)
+                    # Right-align each time within its column so the digits stack.
+                    draw.text((rise_right - draw.textlength(rise_s, font=font_sm), y),
+                              rise_s, font=font_sm, fill=fill)
+                    draw.text((dash_left, y), "-", font=font_sm, fill=fill)
+                    draw.text((set_right - draw.textlength(set_s, font=font_sm), y),
+                              set_s, font=font_sm, fill=fill)
+
+                if rows[1] is not None:
+                    draw_grid_row(rows[1], "Sun", sunrise_ts, sunset_ts, (255, 200, 0))
+                if rows[2] is not None:
+                    draw_grid_row(rows[2], "Moon", moonrise_ts, moonset_ts, (180, 180, 220))
+            else:
+                # Stacked fallback (narrow panels): sunrise then sunset, each with
+                # an up/down marker. No room for a labeled range or the moon row.
+                text_budget = col_w - 8  # marker (4) + gap (2) + right margin (2)
+                if rows[1] is not None:
+                    self._draw_rise_set_marker(draw, text_x, rows[1] + 1, True, (255, 200, 0))
+                    draw.text((text_x + 6, rows[1]),
+                              self._truncate_to_width(draw, sunrise, font_sm, text_budget),
+                              font=font_sm, fill=(255, 200, 0))
+                if rows[2] is not None:
+                    self._draw_rise_set_marker(draw, text_x, rows[2] + 1, False, (255, 120, 50))
+                    draw.text((text_x + 6, rows[2]),
+                              self._truncate_to_width(draw, sunset, font_sm, text_budget),
+                              font=font_sm, fill=(255, 120, 50))
 
             # Row 4: Day length
             if day_len and rows[3] is not None:
-                draw.text((text_x, rows[3]), f"Day {day_len}", font=font_sm,
-                          fill=self.COLORS['dim'])
+                day_text = f"Day {day_len}" if time_mode == "range" else day_len
+                draw.text((text_x, rows[3]),
+                          self._truncate_to_width(draw, day_text, font_sm, col_w - 2),
+                          font=font_sm, fill=self.COLORS['dim'])
 
             self.display_manager.image = img
             self.display_manager.update_display()
