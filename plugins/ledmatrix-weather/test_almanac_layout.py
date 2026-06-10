@@ -75,7 +75,9 @@ def check_layout_helper(w, h):
     from PIL import ImageDraw
     plugin = _new_plugin(w, h)
     draw = ImageDraw.Draw(Image.new("RGB", (w, h)))
-    text_x = (h - 6) + 8           # icon_size + 8, mirrors _display_almanac
+    icon_size = min(h - 6, 32)            # mirrors _display_almanac icon cap
+    gap = 4 if w < 100 else 8
+    text_x = icon_size + gap
     col_w = w - text_x
     body_h = 6
     pct_reserve = int(draw.textlength("100%", font=plugin.display_manager.extra_small_font)) + 2
@@ -117,6 +119,66 @@ def check_render_edges(w, h):
     return fails
 
 
+def check_time_mode(w, h):
+    """The rise/set rows must read clearly, not as cryptic 'MR/MS'. Wide short
+    panels (128x32, 256x32) get the labeled 'Sun 6:42am-8:51pm' range with full
+    am/pm; the cramped 64-wide panel falls back to stacked sun-only times rather
+    than truncating a range into garbage."""
+    from PIL import ImageDraw
+    plugin = _new_plugin(w, h)
+    draw = ImageDraw.Draw(Image.new("RGB", (w, h)))
+    icon_size = min(h - 6, 32)
+    gap = 4 if w < 100 else 8
+    col_w = w - (icon_size + gap)
+    data = weather_for_phase(0.5)
+    s, m = data["sun"], data["moon"]
+    mode, full = plugin._almanac_time_mode(
+        draw, col_w, data["timezone_offset"],
+        s["sunrise"], s["sunset"], m["moonrise"], m["moonset"])
+
+    fails = []
+    if w >= 128:
+        if mode != "range":
+            fails.append(f"expected labeled range on {w}-wide, got {mode!r}")
+        if not full:
+            fails.append(f"expected full am/pm on {w}-wide, got compact")
+    if w == 64 and mode != "stacked":
+        fails.append(f"expected stacked fallback on 64-wide, got {mode!r}")
+    return fails
+
+
+def check_columns(w, h):
+    """In range mode the rise/set times are laid out as a grid: every formatted
+    time fits inside its shared-width time column (so the two rows' rise times
+    stack and set times stack), and the whole grid stays inside the text column.
+    Narrow panels use the stacked fallback instead, so there's no grid to check."""
+    from PIL import ImageDraw
+    plugin = _new_plugin(w, h)
+    font = plugin.display_manager.extra_small_font
+    draw = ImageDraw.Draw(Image.new("RGB", (w, h)))
+    icon_size = min(h - 6, 32)
+    gap = 4 if w < 100 else 8
+    col_w = w - (icon_size + gap)
+    data = weather_for_phase(0.5)
+    s, m = data["sun"], data["moon"]
+    tz = data["timezone_offset"]
+    mode, full = plugin._almanac_time_mode(
+        draw, col_w, tz, s["sunrise"], s["sunset"], m["moonrise"], m["moonset"])
+    if mode != "range":
+        return []
+
+    cols = plugin._almanac_columns(
+        draw, font, full, tz, s["sunrise"], s["sunset"], m["moonrise"], m["moonset"])
+    fails = []
+    for ts in (s["sunrise"], s["sunset"], m["moonrise"], m["moonset"]):
+        tw = draw.textlength(plugin._format_unix_time(ts, tz, full), font=font)
+        if tw > cols["time_w"] + 0.01:
+            fails.append(f"time {tw:.0f}px overflows its {cols['time_w']:.0f}px column")
+    if cols["total"] > col_w - 2:
+        fails.append(f"grid {cols['total']:.0f}px exceeds text column {col_w - 2}px")
+    return fails
+
+
 def main():
     total_fail = 0
 
@@ -132,11 +194,38 @@ def main():
         else:
             print(f"PASS {tag}")
 
-    # Full render must stay on-panel where this dense page is meant to live
-    # (the moon icon makes 64-wide too cramped for the rise/set rows).
-    for (w, h) in [(128, 32), (256, 32), (128, 64)]:
+    # Full render must stay on-panel at every supported size, including the
+    # cramped 64-wide panel (the stacked fallback now keeps it on-panel where
+    # the old labeled rows bled off).
+    for (w, h) in SIZES:
         fails = check_render_edges(w, h)
         tag = f"render {w}x{h}"
+        if fails:
+            total_fail += 1
+            print(f"FAIL {tag}:")
+            for f in fails:
+                print(f"       {f}")
+        else:
+            print(f"PASS {tag}")
+
+    # Rise/set rows read clearly (labeled range + full am/pm where it fits,
+    # stacked fallback where it doesn't) instead of the old cryptic MR/MS.
+    for (w, h) in SIZES:
+        fails = check_time_mode(w, h)
+        tag = f"time-mode {w}x{h}"
+        if fails:
+            total_fail += 1
+            print(f"FAIL {tag}:")
+            for f in fails:
+                print(f"       {f}")
+        else:
+            print(f"PASS {tag}")
+
+    # In range mode the times line up as a grid (shared time columns) and the
+    # whole label | rise | '-' | set grid stays inside the text column.
+    for (w, h) in SIZES:
+        fails = check_columns(w, h)
+        tag = f"columns {w}x{h}"
         if fails:
             total_fail += 1
             print(f"FAIL {tag}:")
