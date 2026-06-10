@@ -194,6 +194,11 @@ class GameRenderer:
     def _draw_text_with_outline(self, draw, text, position, font,
                                fill=(255, 255, 255), outline_color=(0, 0, 0)):
         """Draw text with a black outline for better readability."""
+        # Disable anti-aliasing: pixel/bitmap fonts (e.g. PressStart2P) get
+        # anti-aliased into dim partial-lit pixels on a 1:1 LED matrix, muddying
+        # glyphs. 1-bit mode keeps strokes crisp. See _draw_text_with_outline in
+        # sports.py for the same fix on the switch-mode renderer.
+        draw.fontmode = "1"
         x, y = position
         for dx, dy in [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]:
             draw.text((x + dx, y + dy), text, font=font, fill=outline_color)

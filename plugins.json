@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "last_updated": "2026-06-08",
+  "last_updated": "2026-06-09",
   "plugins": [
     {
       "id": "7-segment-clock",
@@ -49,7 +49,7 @@
       "last_updated": "2026-06-05",
       "verified": true,
       "screenshot": "",
-      "latest_version": "1.6.3"
+      "latest_version": "1.6.4"
     },
     {
       "id": "basketball-scoreboard",

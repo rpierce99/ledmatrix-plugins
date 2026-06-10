@@ -1,7 +1,7 @@
 {
   "id": "baseball-scoreboard",
   "name": "Baseball Scoreboard",
-  "version": "1.6.3",
+  "version": "1.6.4",
   "author": "ChuckBuilds",
   "description": "Live, recent, and upcoming baseball games across MLB, MiLB, and NCAA Baseball with real-time scores and schedules",
   "category": "sports",
@@ -30,6 +30,12 @@
   "branch": "main",
   "plugin_path": "plugins/baseball-scoreboard",
   "versions": [
+    {
+      "released": "2026-06-09",
+      "version": "1.6.4",
+      "notes": "Disable anti-aliasing when drawing the outlined text (scores, status, date). The pixel/bitmap fonts (e.g. PressStart2P) were being anti-aliased into dim partial-lit pixels on a 1:1 LED matrix, muddying glyphs so a '6' could read as a 'G'. Drawing in 1-bit mode keeps digits crisp.",
+      "ledmatrix_min": "2.0.0"
+    },
     {
       "released": "2026-06-05",
       "version": "1.6.3",
