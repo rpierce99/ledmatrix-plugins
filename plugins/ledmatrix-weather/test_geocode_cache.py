@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regression test for geocode caching + last-known-coords fallback.
+"""Regression test for geocode-once-and-cache coordinate resolution.
 
 Before the fix, the weather plugin geocoded the configured city on *every*
 refresh (every update_interval, on cache expiry) as a hard prerequisite to the
@@ -58,10 +58,11 @@ def _new_plugin(cache, override=None, coords=None):
 
 
 def _counting_geocode(result=(47.0, -122.0), fail_with=None):
-    """Return a _geocode replacement that records how many times it ran."""
+    """Return a _geocode replacement (assigned as an instance attribute, so it
+    is called without `self`) that records how many times it ran."""
     calls = {"n": 0}
 
-    def geocode(self, city, state, country):
+    def geocode(city, state, country):
         calls["n"] += 1
         if fail_with is not None:
             raise fail_with
@@ -74,7 +75,7 @@ def check_resolves_once_then_reuses():
     cache = FakeCache()
     p = _new_plugin(cache)
     geocode, calls = _counting_geocode((47.0, -122.0))
-    p._geocode = geocode.__get__(p, WeatherPlugin)
+    p._geocode = geocode
 
     first = p._resolve_coords("Federal Way", "WA", "US")
     second = p._resolve_coords("Federal Way", "WA", "US")
@@ -93,12 +94,12 @@ def check_reuses_across_restart():
     cache = FakeCache()
     seed = _new_plugin(cache)
     geocode, _ = _counting_geocode((47.0, -122.0))
-    seed._geocode = geocode.__get__(seed, WeatherPlugin)
+    seed._geocode = geocode
     seed._resolve_coords("Federal Way", "WA", "US")  # populate cache
 
     p = _new_plugin(cache)  # "restart": _coords is None
     geocode2, calls2 = _counting_geocode((1.0, 1.0))  # would differ if called
-    p._geocode = geocode2.__get__(p, WeatherPlugin)
+    p._geocode = geocode2
     coords = p._resolve_coords("Federal Way", "WA", "US")
 
     fails = []
@@ -116,7 +117,7 @@ def check_cached_coords_never_expire():
     cache = FakeCache()
     seed = _new_plugin(cache)
     geocode, _ = _counting_geocode((47.0, -122.0))
-    seed._geocode = geocode.__get__(seed, WeatherPlugin)
+    seed._geocode = geocode
     seed._resolve_coords("Federal Way", "WA", "US")  # populate cache
 
     coords_key = "ledmatrix-weather:Federal Way:WA:US:coords"
@@ -124,7 +125,7 @@ def check_cached_coords_never_expire():
 
     p = _new_plugin(cache)  # restart: in-memory coords gone
     geocode2, calls2 = _counting_geocode((1.0, 1.0))  # would differ if called
-    p._geocode = geocode2.__get__(p, WeatherPlugin)
+    p._geocode = geocode2
     coords = p._resolve_coords("Federal Way", "WA", "US")
 
     fails = []
@@ -141,7 +142,7 @@ def check_raises_when_never_resolved():
     cache = FakeCache()
     p = _new_plugin(cache)
     geocode, _ = _counting_geocode(fail_with=TimeoutError("read timed out"))
-    p._geocode = geocode.__get__(p, WeatherPlugin)
+    p._geocode = geocode
     try:
         p._resolve_coords("Nowhere", "XX", "US")
     except TimeoutError:
@@ -153,7 +154,7 @@ def check_override_skips_geocoding():
     cache = FakeCache()
     p = _new_plugin(cache, override=(10.0, 20.0))
     geocode, calls = _counting_geocode((47.0, -122.0))
-    p._geocode = geocode.__get__(p, WeatherPlugin)
+    p._geocode = geocode
     coords = p._resolve_coords("Federal Way", "WA", "US")
 
     fails = []
