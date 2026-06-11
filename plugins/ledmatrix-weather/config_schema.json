@@ -45,6 +45,16 @@
       "description": "Country code (e.g., US, GB, CA, FR). Use ISO 3166-1 alpha-2 codes.",
       "title": "Country Code"
     },
+    "location_latitude": {
+      "type": "number",
+      "description": "Optional. Exact latitude (-90 to 90). When both latitude and longitude are set, geocoding is skipped entirely.",
+      "title": "Latitude (optional)"
+    },
+    "location_longitude": {
+      "type": "number",
+      "description": "Optional. Exact longitude (-180 to 180). When both latitude and longitude are set, geocoding is skipped entirely.",
+      "title": "Longitude (optional)"
+    },
     "units": {
       "type": "string",
       "enum": [

@@ -67,7 +67,11 @@ class WeatherPlugin(BasePlugin):
             'state': config.get('location_state', 'Texas'),
             'country': config.get('location_country', 'US')
         }
-        
+
+        # Optional explicit coordinates. When set, geocoding is skipped entirely.
+        self._coord_override = self._parse_coord_override(
+            config.get('location_latitude'), config.get('location_longitude'))
+
         self.units = config.get('units', 'imperial')
         
         # Handle update_interval - ensure it's an int
@@ -102,6 +106,7 @@ class WeatherPlugin(BasePlugin):
         self.hourly_forecast = None
         self.daily_forecast = None
         self.last_update = 0
+        self._coords = None  # last successfully resolved (lat, lon)
         
         # Error handling and throttling
         self.consecutive_errors = 0
@@ -272,6 +277,10 @@ class WeatherPlugin(BasePlugin):
             'state': new_config.get('location_state', self.location.get('state', 'Texas')),
             'country': new_config.get('location_country', self.location.get('country', 'US')),
         }
+        # Location may have changed — drop the in-memory coords so they re-resolve.
+        self._coord_override = self._parse_coord_override(
+            new_config.get('location_latitude'), new_config.get('location_longitude'))
+        self._coords = None
         self.units = new_config.get('units', self.units)
         self.show_current = new_config.get('show_current_weather', self.show_current)
         self.show_hourly = new_config.get('show_hourly_forecast', self.show_hourly)
@@ -395,6 +404,84 @@ class WeatherPlugin(BasePlugin):
             line_color=line_color, fill_color=fill_color,
         )
 
+    # Coordinates for a fixed location never change, so geocode once and cache
+    # the result permanently — the geocoding API is only ever hit on a cache
+    # miss (first run for a location, or after the city is changed in config).
+    COORDS_MAX_AGE = 10 * 365 * 24 * 3600   # effectively forever
+
+    @staticmethod
+    def _parse_coord_override(lat, lon):
+        """Return (lat, lon) as floats if both are present and in valid range, else None."""
+        if lat is None or lon is None or lat == '' or lon == '':
+            return None
+        try:
+            lat_f, lon_f = float(lat), float(lon)
+        except (TypeError, ValueError):
+            return None
+        if -90 <= lat_f <= 90 and -180 <= lon_f <= 180:
+            return (lat_f, lon_f)
+        return None
+
+    def _resolve_coords(self, city: str, state: str, country: str):
+        """Resolve (lat, lon) for the configured location.
+
+        Geocodes once per location and caches the result across update cycles
+        and restarts. Cities don't move, so a cached coordinate is always valid
+        and the geocoding API is only ever called on a true cache miss.
+        """
+        # 1) Explicit config override — no network at all.
+        if self._coord_override is not None:
+            return self._coord_override
+
+        # 2) Resolved earlier this run.
+        if self._coords is not None:
+            return self._coords
+
+        # 3) Persistent cache. A cached value never goes stale (the location is
+        #    fixed), so this is the only thing that prevents a geocode call.
+        coords_key = f"{self.plugin_id}:{city}:{state}:{country}:coords"
+        cached = self.cache_manager.get(coords_key, max_age=self.COORDS_MAX_AGE)
+        if cached and 'lat' in cached and 'lon' in cached:
+            self._coords = (cached['lat'], cached['lon'])
+            return self._coords
+
+        # 4) Cache miss — geocode once and cache the result. If geocoding is down
+        #    on a cold cache there's nothing to fall back to, so the error
+        #    propagates to update()'s normal retry/backoff path.
+        lat, lon = self._geocode(city, state, country)
+        self._coords = (lat, lon)
+        self.cache_manager.set(coords_key, {'lat': lat, 'lon': lon})
+        return self._coords
+
+    def _geocode(self, city: str, state: str, country: str):
+        """Look up coordinates for a place name via the Open-Meteo geocoding API."""
+        from urllib.parse import quote_plus
+        geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={quote_plus(city)}&count=5&language=en&format=json"
+        try:
+            response = requests.get(geo_url, timeout=10)
+            response.raise_for_status()
+        except requests.exceptions.HTTPError as e:
+            status = e.response.status_code if e.response is not None else None
+            self._last_error_hint = f"Geo API error {status}"
+            self.logger.error(f"Open-Meteo geocoding HTTP error {status}: {e}")
+            raise
+
+        results = response.json().get('results', [])
+        if not results:
+            self._last_error_hint = f"Unknown: {city}"
+            msg = f"Could not find coordinates for {city}, {state}, {country}"
+            self.logger.error(msg)
+            raise ValueError(msg)
+
+        # Pick the best result by matching country code
+        country_upper = country.upper() if country else ''
+        lat, lon = results[0]['latitude'], results[0]['longitude']
+        for r in results:
+            if r.get('country_code', '').upper() == country_upper:
+                lat, lon = r['latitude'], r['longitude']
+                break
+        return lat, lon
+
     def _fetch_weather(self) -> None:
         """Fetch weather data from Open-Meteo API (free, no API key required)."""
         city = self.location.get('city', 'Dallas')
@@ -428,32 +515,10 @@ class WeatherPlugin(BasePlugin):
                 self.logger.info("Using cached weather data")
                 return
 
-        # Step A: Geocoding via Open-Meteo geocoding API
-        from urllib.parse import quote_plus
-        geo_url = f"https://geocoding-api.open-meteo.com/v1/search?name={quote_plus(city)}&count=5&language=en&format=json"
-        try:
-            response = requests.get(geo_url, timeout=10)
-            response.raise_for_status()
-        except requests.exceptions.HTTPError as e:
-            status = e.response.status_code if e.response is not None else None
-            self._last_error_hint = f"Geo API error {status}"
-            self.logger.error(f"Open-Meteo geocoding HTTP error {status}: {e}")
-            raise
-
-        results = response.json().get('results', [])
-        if not results:
-            self._last_error_hint = f"Unknown: {city}"
-            msg = f"Could not find coordinates for {city}, {state}, {country}"
-            self.logger.error(msg)
-            raise ValueError(msg)
-
-        # Pick the best result by matching country code
+        # Step A: Resolve coordinates. These are geocoded once and cached, so a
+        # slow or failing geocoding API can't block (or blank) the weather data.
         country_upper = country.upper() if country else ''
-        lat, lon = results[0]['latitude'], results[0]['longitude']
-        for r in results:
-            if r.get('country_code', '').upper() == country_upper:
-                lat, lon = r['latitude'], r['longitude']
-                break
+        lat, lon = self._resolve_coords(city, state, country)
 
         # Step B: Fetch forecast from Open-Meteo
         temp_unit = "fahrenheit" if self.units == "imperial" else "celsius"
