@@ -1,7 +1,7 @@
 {
   "id": "ledmatrix-weather",
   "name": "Weather Display",
-  "version": "2.4.0",
+  "version": "2.5.0",
   "author": "ChuckBuilds",
   "class_name": "WeatherPlugin",
   "description": "Comprehensive weather display with current conditions, hourly forecast, daily forecast, almanac (sunrise/sunset, moon phase), precipitation radar, weather alerts, UV index, wind direction, and weather icons. Powered by Open-Meteo (free, no API key) + RainViewer.",
@@ -25,6 +25,12 @@
     "radar"
   ],
   "versions": [
+    {
+      "released": "2026-06-10",
+      "version": "2.5.0",
+      "note": "Geocode the configured location once and cache the coordinates permanently across update cycles and restarts, instead of re-resolving every refresh. Cities don't move, so the geocoding API is now only ever called on a cache miss — eliminating the per-refresh geocoding timeouts that previously aborted the whole weather update, blanked the widget, and triggered up-to-an-hour error backoff. Add optional location_latitude/location_longitude config fields to skip geocoding entirely.",
+      "ledmatrix_min": "2.0.0"
+    },
     {
       "released": "2026-06-09",
       "version": "2.4.0",
@@ -101,7 +107,7 @@
       "ledmatrix_min_version": "2.0.0"
     }
   ],
-  "last_updated": "2026-05-27",
+  "last_updated": "2026-06-10",
   "stars": 0,
   "downloads": 0,
   "verified": true,
