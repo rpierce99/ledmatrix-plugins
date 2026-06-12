@@ -13,6 +13,7 @@ Features:
 - Automatic error handling and retry logic
 """
 
+import math
 import requests
 import time
 from datetime import datetime
@@ -648,6 +649,51 @@ class WeatherPlugin(BasePlugin):
             })
         return result
 
+    @staticmethod
+    def _moon_illumination(phase):
+        """Fraction of the moon's disc lit (0..1) for a cycle position
+        (0=new, 0.5=full, 0.75=last quarter). Distinct from `phase`, which is
+        progress through the cycle — they agree only at the quarters, so a
+        waning crescent at phase 0.86 is ~13% lit, not 86%.
+        """
+        return (1 - math.cos(2 * math.pi * phase)) / 2
+
+    def _moon_event_fallback(self, observer, d, tz, rising):
+        """Recover a moonrise/moonset that astral wrongly reports as absent.
+
+        astral only searches within the single calendar day, so on the one day
+        each month the event straddles the day boundary it raises "Moon never
+        rises/sets on this date" even though it does (sffjunkie/astral #88, #105
+        — both open and unreleased as of astral 3.2, the latest release). Scan
+        the moon's elevation across the local day using astral's own ephemeris
+        and bisect the horizon crossing ourselves.
+        """
+        from astral import moon as astral_moon
+        from datetime import datetime, time, timedelta
+        import zoneinfo
+        utc = zoneinfo.ZoneInfo('UTC')
+
+        def elev(t):
+            # astral.elevation ignores tzinfo, so feed it the UTC instant.
+            # 0.125deg is the standard moon rise/set altitude (parallax less
+            # refraction and semidiameter).
+            return astral_moon.elevation(observer, t.astimezone(utc)) - 0.125
+
+        start = datetime.combine(d, time(0, 0), tzinfo=tz)
+        end = start + timedelta(days=1)
+        prev_t, prev_e, t = start, elev(start), start + timedelta(minutes=20)
+        while t <= end:
+            e = elev(t)
+            crossed = (prev_e < 0 <= e) if rising else (prev_e >= 0 > e)
+            if crossed:
+                lo, hi = prev_t, t
+                for _ in range(20):  # bisect to ~sub-second
+                    mid = lo + (hi - lo) / 2
+                    lo, hi = (mid, hi) if (elev(mid) < 0) == rising else (lo, mid)
+                return lo + (hi - lo) / 2
+            prev_t, prev_e, t = t, e, t + timedelta(minutes=20)
+        return None
+
     def _map_om_daily(self, om_data: Dict) -> List[Dict]:
         """Convert Open-Meteo daily arrays to OWM-compatible daily list.
 
@@ -691,14 +737,18 @@ class WeatherPlugin(BasePlugin):
             moon_phase = astral_moon.phase(d) / 28.0
             try:
                 moonrise_dt = astral_moon.moonrise(observer, d, tzinfo=tz)
-                moonrise_ts = int(moonrise_dt.timestamp()) if moonrise_dt else None
             except Exception:
-                moonrise_ts = None
+                moonrise_dt = None
+            if moonrise_dt is None:
+                moonrise_dt = self._moon_event_fallback(observer, d, tz, rising=True)
+            moonrise_ts = int(moonrise_dt.timestamp()) if moonrise_dt else None
             try:
                 moonset_dt = astral_moon.moonset(observer, d, tzinfo=tz)
-                moonset_ts = int(moonset_dt.timestamp()) if moonset_dt else None
             except Exception:
-                moonset_ts = None
+                moonset_dt = None
+            if moonset_dt is None:
+                moonset_dt = self._moon_event_fallback(observer, d, tz, rising=False)
+            moonset_ts = int(moonset_dt.timestamp()) if moonset_dt else None
 
             result.append({
                 'dt': ts,
@@ -1478,7 +1528,7 @@ class WeatherPlugin(BasePlugin):
                 draw.text((text_x, rows[0]), layout["title_text"],
                           font=layout["title_font"], fill=(200, 200, 255))
                 if moon_phase is not None:
-                    pct = f"{int(moon_phase * 100)}%"
+                    pct = f"{int(round(self._moon_illumination(moon_phase) * 100))}%"
                     pct_w = draw.textlength(pct, font=pct_font)
                     draw.text((width - pct_w - 2, rows[0]), pct,
                               font=pct_font, fill=(140, 140, 180))
