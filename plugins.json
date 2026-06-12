@@ -216,6 +216,33 @@
       "latest_version": "2.3.5"
     },
     {
+      "id": "geochron",
+      "name": "Geochron World Clock",
+      "description": "High-fidelity world map clock showing the real-time day/night terminator with civil/nautical/astronomical twilight bands, the subsolar point, configurable city markers, and a digital UTC/local clock - a classic Geochron, reimagined for LED matrix panels of any size.",
+      "author": "ChuckBuilds",
+      "category": "time",
+      "tags": [
+        "clock",
+        "world map",
+        "geochron",
+        "sun",
+        "terminator",
+        "astronomy",
+        "time",
+        "globe"
+      ],
+      "repo": "https://github.com/ChuckBuilds/ledmatrix-plugins",
+      "branch": "main",
+      "plugin_path": "plugins/geochron",
+      "stars": 0,
+      "downloads": 0,
+      "last_updated": "2026-06-10",
+      "verified": true,
+      "screenshot": "",
+      "latest_version": "1.0.0",
+      "icon": "fa-globe"
+    },
+    {
       "id": "hello-world",
       "name": "Hello World",
       "description": "A simple test plugin that displays a customizable message",
