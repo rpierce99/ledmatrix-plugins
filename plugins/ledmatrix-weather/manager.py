@@ -658,6 +658,30 @@ class WeatherPlugin(BasePlugin):
         """
         return (1 - math.cos(2 * math.pi * phase)) / 2
 
+    def _astral_moon_event(self, astral_fn, observer, d, tz, rising):
+        """Moonrise/moonset unix timestamp, recovering astral's monthly "never
+        rises/sets on this date" failure via the elevation-scan fallback.
+
+        astral signals the no-event-on-this-date case inconsistently — usually a
+        ValueError, sometimes a None return (sffjunkie/astral #94, #105) — and
+        both mean "recover it ourselves". Any *other* astral error is logged and
+        reported as a missing field rather than propagating: moon rise/set is a
+        secondary value, and update() turns any exception from the fetch into
+        error backoff that blanks the entire weather widget.
+        """
+        try:
+            dt = astral_fn(observer, d, tzinfo=tz)
+        except ValueError:
+            dt = self._moon_event_fallback(observer, d, tz, rising=rising)
+        except Exception:
+            self.logger.warning("Unexpected astral moon event error for %s", d,
+                                exc_info=True)
+            dt = None
+        else:
+            if dt is None:
+                dt = self._moon_event_fallback(observer, d, tz, rising=rising)
+        return int(dt.timestamp()) if dt else None
+
     def _moon_event_fallback(self, observer, d, tz, rising):
         """Recover a moonrise/moonset that astral wrongly reports as absent.
 
@@ -735,20 +759,10 @@ class WeatherPlugin(BasePlugin):
 
             # Moon phase: astral returns 0-28; normalize to 0-1 to match OWM convention
             moon_phase = astral_moon.phase(d) / 28.0
-            try:
-                moonrise_dt = astral_moon.moonrise(observer, d, tzinfo=tz)
-            except Exception:
-                moonrise_dt = None
-            if moonrise_dt is None:
-                moonrise_dt = self._moon_event_fallback(observer, d, tz, rising=True)
-            moonrise_ts = int(moonrise_dt.timestamp()) if moonrise_dt else None
-            try:
-                moonset_dt = astral_moon.moonset(observer, d, tzinfo=tz)
-            except Exception:
-                moonset_dt = None
-            if moonset_dt is None:
-                moonset_dt = self._moon_event_fallback(observer, d, tz, rising=False)
-            moonset_ts = int(moonset_dt.timestamp()) if moonset_dt else None
+            moonrise_ts = self._astral_moon_event(
+                astral_moon.moonrise, observer, d, tz, rising=True)
+            moonset_ts = self._astral_moon_event(
+                astral_moon.moonset, observer, d, tz, rising=False)
 
             result.append({
                 'dt': ts,

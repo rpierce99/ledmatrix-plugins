@@ -41,15 +41,17 @@ def check_moonset_fallback():
     fails = []
     d = datetime.date(2026, 6, 11)
 
-    # Document the underlying astral bug: it raises on this date.
+    # Document the underlying astral bug: it raises the specific "never sets"
+    # ValueError on this date.
     astral_raised = False
     try:
         astral_moon.moonset(OBS, d, tzinfo=TZ)
-    except Exception:
-        astral_raised = True
+    except ValueError as exc:
+        astral_raised = "never sets" in str(exc)
     if not astral_raised:
-        fails.append("astral.moonset no longer raises on 2026-06-11 — "
-                     "the fallback may be untested; revisit this guard")
+        fails.append("astral.moonset no longer raises 'never sets' on "
+                     "2026-06-11 — the fallback may be untested; revisit this "
+                     "guard")
 
     got = plugin._moon_event_fallback(OBS, d, TZ, rising=False)
     if got is None:
