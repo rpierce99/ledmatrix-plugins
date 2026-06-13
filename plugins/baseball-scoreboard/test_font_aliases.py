@@ -19,7 +19,6 @@ plugin_dir = os.path.dirname(os.path.abspath(__file__))
 if plugin_dir not in sys.path:
     sys.path.insert(0, plugin_dir)
 
-import game_renderer  # noqa: E402
 from game_renderer import resolve_font_name, FONT_ALIASES  # noqa: E402
 
 EXPECTED = {
