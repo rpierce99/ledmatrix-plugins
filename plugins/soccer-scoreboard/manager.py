@@ -1126,6 +1126,19 @@ class SoccerScoreboardPlugin(BasePlugin if BasePlugin else object):
             except Exception as e:
                 self.logger.warning(f"Error updating manager: {e}")
 
+    def _manager_has_displayable_games(self, manager, mode_type: str) -> bool:
+        """Return True if the manager currently has games to show for this mode.
+
+        Live managers expose their games as ``live_games``; recent and upcoming
+        managers expose ``games_list``. In switch mode an empty manager must be
+        skipped: its ``display()`` clears the shared canvas when it has no games,
+        which would erase content another league's manager just drew for the same
+        mode and leave the panel blank for the rest of the slot.
+        """
+        if mode_type == 'live':
+            return bool(getattr(manager, 'live_games', None))
+        return bool(getattr(manager, 'games_list', None))
+
     def _get_available_modes(self) -> list:
         """Get list of available display modes based on enabled leagues."""
         modes = []
@@ -1409,7 +1422,7 @@ class SoccerScoreboardPlugin(BasePlugin if BasePlugin else object):
                 continue
 
             manager = self._get_league_manager_for_mode(league_key, mode_type)
-            if manager:
+            if manager and self._manager_has_displayable_games(manager, mode_type):
                 managers_to_try.append((league_key, manager))
         
         # Try each manager until one returns True (has content)
@@ -1475,7 +1488,7 @@ class SoccerScoreboardPlugin(BasePlugin if BasePlugin else object):
                                     managers_to_try.append((live_priority, league_key, live_manager))
                         else:
                             manager = self._get_league_manager_for_mode(league_key, mode_type)
-                            if manager:
+                            if manager and self._manager_has_displayable_games(manager, mode_type):
                                 managers_to_try.append((False, league_key, manager))
 
                     # Sort by live_priority (True first) for live mode, then try each manager
@@ -1564,7 +1577,7 @@ class SoccerScoreboardPlugin(BasePlugin if BasePlugin else object):
                 enabled_league_keys = self._get_enabled_leagues_for_mode(mode_type)
                 for key in enabled_league_keys:
                     manager = self._get_league_manager_for_mode(key, mode_type)
-                    if manager:
+                    if manager and self._manager_has_displayable_games(manager, mode_type):
                         managers_to_try.append((key, manager))
                 
                 # Try each manager until one returns True (has content)
