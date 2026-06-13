@@ -1225,6 +1225,16 @@ class WeatherPlugin(BasePlugin):
     
     # --- Almanac Display Mode ---
 
+    # Abbreviated phase names used by the almanac layout when the full name
+    # won't fit the text column (see _almanac_layout). Only the long
+    # waxing/waning names need shortening; the rest already fit.
+    _PHASE_ABBREV = {
+        "Waxing Crescent": "Wax Crescent",
+        "Waxing Gibbous": "Wax Gibbous",
+        "Waning Gibbous": "Wan Gibbous",
+        "Waning Crescent": "Wan Crescent",
+    }
+
     def _get_moon_phase_name(self, phase: float) -> str:
         """Convert moon phase float (0-1) to a name."""
         if phase is None:
@@ -1232,19 +1242,19 @@ class WeatherPlugin(BasePlugin):
         if phase == 0:
             return "New Moon"
         elif phase < 0.25:
-            return "Wax Crescent"
+            return "Waxing Crescent"
         elif phase == 0.25:
             return "First Quarter"
         elif phase < 0.5:
-            return "Wax Gibbous"
+            return "Waxing Gibbous"
         elif phase == 0.5:
             return "Full Moon"
         elif phase < 0.75:
-            return "Wan Gibbous"
+            return "Waning Gibbous"
         elif phase == 0.75:
             return "Last Quarter"
         else:
-            return "Wan Crescent"
+            return "Waning Crescent"
 
     def _get_moon_icon_code(self, phase: float) -> str:
         """Map moon phase float (0-1) to one of 8 icon filename stems."""
@@ -1364,11 +1374,15 @@ class WeatherPlugin(BasePlugin):
         """Choose fonts and row positions for the almanac page so nothing
         overflows the panel or collides with the illumination %.
 
-        The 8px title font is wide (PressStart2P): a name like "Wax Gibbous"
-        is 88px, which doesn't fit the ~94px text column next to a right-aligned
+        The 8px title font is wide (PressStart2P): a name like "Waxing Gibbous"
+        is 112px, which doesn't fit the ~94px text column next to a right-aligned
         %, and longer names run clean off a 128-wide panel. Short panels also
         can't stack a 9px title plus three 7px rows in 32px of height. This
-        sizes both axes to the actual panel.
+        sizes both axes to the actual panel and, when the full phase name still
+        won't fit, falls back to the abbreviated form (e.g. "Wax Gibbous")
+        before trimming characters — so wide panels show the full name and
+        cramped ones degrade to a readable abbreviation rather than a mid-word
+        cut.
 
         Returns a dict with `title_font`, `title_text` (fitted), `pct_font`,
         and `rows` — a list of four y-positions (title, sun, moon, day) where
@@ -1384,12 +1398,21 @@ class WeatherPlugin(BasePlugin):
 
         # Prefer the bold 8px title, but drop to the 6px font when the name
         # (with room reserved for the %) won't fit, or when the panel is too
-        # short to spare the extra height. Truncate as a last resort.
+        # short to spare the extra height.
         compact = height < 40
         if compact or draw.textlength(phase_name, font=title_font) > name_budget:
             title_font = body_font
             title_h = body_h
-        title_text = self._truncate_to_width(draw, phase_name, title_font, name_budget)
+
+        # At the chosen font, show the fullest variant that fits: the full phase
+        # name first, then the abbreviation, and only trim characters as a last
+        # resort.
+        short_name = self._PHASE_ABBREV.get(phase_name, phase_name)
+        title_text = next(
+            (cand for cand in (phase_name, short_name)
+             if draw.textlength(cand, font=title_font) <= name_budget),
+            self._truncate_to_width(draw, short_name, title_font, name_budget),
+        )
 
         # Stack rows top-down, dropping any that would spill past the bottom.
         row_gap = 1 if compact else 2

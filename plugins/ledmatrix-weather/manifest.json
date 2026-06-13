@@ -1,7 +1,7 @@
 {
   "id": "ledmatrix-weather",
   "name": "Weather Display",
-  "version": "2.5.0",
+  "version": "2.5.1",
   "author": "ChuckBuilds",
   "class_name": "WeatherPlugin",
   "description": "Comprehensive weather display with current conditions, hourly forecast, daily forecast, almanac (sunrise/sunset, moon phase), precipitation radar, weather alerts, UV index, wind direction, and weather icons. Powered by Open-Meteo (free, no API key) + RainViewer.",
@@ -25,6 +25,12 @@
     "radar"
   ],
   "versions": [
+    {
+      "released": "2026-06-13",
+      "version": "2.5.1",
+      "note": "Restore the full moon-phase names on the almanac page now that the redesigned layout (capped icon + adaptive title font) has room for them: 'Waxing/Waning Crescent' and 'Waxing/Waning Gibbous' instead of the abbreviated 'Wax/Wan' forms. The layout shows the full name where it fits and degrades to the abbreviation before trimming, so narrow panels stay clean.",
+      "ledmatrix_min": "2.0.0"
+    },
     {
       "released": "2026-06-10",
       "version": "2.5.0",
